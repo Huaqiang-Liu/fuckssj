@@ -87,7 +87,8 @@ python .\test\verify_record.py recovered\mymoney.sqlite --order earliest --json
 
 ## 轻量级记账软件
 
-包含的功能（我暂时用得到的功能）：
+**包含的功能（我暂时用得到的功能）**
+
 1. 导入和导出账本，多账本命名、管理、备注。一个账本是一个 `.sqlite` 文件。
 2. 主设置界面调节浅色/深色/跟随系统。
 3. 记账，每条记账涉及：一级二级分类，收入和支出（金额默认人民币，可以修改成外币，可以在记账界面选择外币列表时跳转，或在主设置编辑常用外币以显示在列表，后续可以现场查询汇率，==注意：原版随手记不支持外币记录，可能需要增补数据库格式，即在导入外部数据库文件后可能需要修改==），记账时间，账目备注（文字和图片），金额计算器，一级二级所属账户（现金、信用卡、金融账户（银行卡/股票/基金）、虚拟账户（支付宝/微信/白条/公交卡/饭卡）、负债账户（应付款项）、债券账户（应收款项）
@@ -95,3 +96,30 @@ python .\test\verify_record.py recovered\mymoney.sqlite --order earliest --json
 5. 自定义一级二级分类、一级二级所属账户、显示外币种类（设置时加上搜索）。分类用JSON文件维护（key-value+列表的模式很方便）。删除分类前要提示：删除分类也会删除其下流水，等待3秒，确认两遍。分类不可重名。修改分类名称后，涉及条目也自动修改。可以从记账/编辑界面跳转，也可以从主设置访问。
 6. 安全性约束。账本默认明文存储在本地，但如果用户在设置中要求添加保护，可以添加密码/人脸/指纹，每次关闭后台都要重新验证，否则本地存储的所有账本文件将会加密——但是已经导出的文件不会加密（这点需要在加密设置界面提醒用户）。加密的密码学方式暂时不确定，要防止密钥明文存储在本地。
 
+TODO:
+
+- [ ] 在 `app/` 下生成 Flutter 工程：
+  ```powershell
+  cd app
+  flutter create . --platforms=android,ios
+  ```
+- [ ] 生成 Flutter 工程后，立即检查 Android 侧 Gradle 仓库配置。由于当前环境不
+  开 tun，不能直接依赖 `google()` 和 `mavenCentral()`。新 Flutter 模板通常改
+  `app/android/settings.gradle`，旧模板可能改 `app/android/build.gradle`。至少
+  使用：
+  ```gradle
+  maven { url = uri("https://maven.aliyun.com/repository/google") }
+  maven { url = uri("https://maven.aliyun.com/repository/central") }
+  maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
+  ```
+- [ ] 建立 App 自有账本数据库 schema。不要长期直接使用随手记原始表结构；随手记
+  SQLite 只作为导入源。
+- [ ] 实现导入闭环：选择 `mymoney.sqlite` -> 读取 `t_transaction` 和
+  `t_category` -> 转换为 App 自有流水/分类/账户模型 -> 写入 App 账本。
+- [ ] 实现空白账本创建、多账本管理和账本备注。
+- [ ] 实现基础记账、流水列表、筛选、搜索、编辑。
+- [ ] 设计分类、账户、币种和加密保护的内部数据结构。
+- [ ] 评估并接入 Flutter 插件：`local_auth`、`flutter_secure_storage`、文件选择
+  插件、SQLite/ORM 方案。
+- [ ] 参考 `docs/development_environment.md` 和 `docs/next_context_prompt.md`
+  开启下一轮 App 开发对话。
