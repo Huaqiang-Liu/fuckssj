@@ -21,3 +21,4 @@ build/
 .flutter-plugins
 .flutter-plugins-dependencies
 .packages
+log.txt
