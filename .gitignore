@@ -1,0 +1,17 @@
+*.kbf
+*.kdf
+*.sqlite
+*.sqlite3
+*.db
+*.db3
+*.bak
+*.zip
+recovered/
+blog/
+__pycache__/
+.pytest_cache/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
