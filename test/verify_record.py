@@ -15,7 +15,7 @@ if str(ROOT) not in sys.path:
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-from scripts.verify_backup import (  # noqa: E402
+from scripts.process_backup_kbf import (  # noqa: E402
     ordered_recovery_candidates,
     read_candidates,
     restore_sqlite_header,
