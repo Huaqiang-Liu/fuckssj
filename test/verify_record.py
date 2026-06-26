@@ -23,7 +23,7 @@ from scripts.verify_backup import (  # noqa: E402
 )
 
 
-LATEST_RECORD_SQL = """
+RECORD_SQL_TEMPLATE = """
 select
     t.transactionPOID,
     t.type,
@@ -57,16 +57,23 @@ left join t_category c
 left join t_category p
     on p.categoryPOID = c.parentCategoryPOID
 where t.type in (0, 1)
-order by t.tradeTime desc, t.transactionPOID desc
+order by t.tradeTime {direction}, t.transactionPOID {direction}
 limit 1
 """
 
 
-def default_backup() -> Path:
+def default_input() -> Path:
     backups = sorted(ROOT.glob("*.kbf"))
-    if not backups:
-        raise FileNotFoundError("No .kbf backup found in the repository root")
-    return backups[0]
+    if backups:
+        return backups[0]
+
+    recovered = ROOT / "recovered" / "mymoney.sqlite"
+    if recovered.exists():
+        return recovered
+
+    raise FileNotFoundError(
+        "No .kbf backup found in the repository root and no recovered/mymoney.sqlite found"
+    )
 
 
 def load_sqlite_from_backup(path: Path) -> bytes:
@@ -78,7 +85,8 @@ def load_sqlite_from_backup(path: Path) -> bytes:
     raise RuntimeError(f"No recoverable SQLite database found in {path}")
 
 
-def query_latest_record(database: bytes) -> dict[str, object]:
+def query_record(database: bytes, order: str) -> dict[str, object]:
+    direction = "desc" if order == "latest" else "asc"
     with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as fp:
         fp.write(database)
         tmp_name = fp.name
@@ -88,7 +96,7 @@ def query_latest_record(database: bytes) -> dict[str, object]:
     try:
         conn = sqlite3.connect(tmp_path)
         conn.row_factory = sqlite3.Row
-        row = conn.execute(LATEST_RECORD_SQL).fetchone()
+        row = conn.execute(RECORD_SQL_TEMPLATE.format(direction=direction)).fetchone()
         if row is None:
             raise RuntimeError("No income or expense record found in t_transaction")
 
@@ -105,19 +113,25 @@ def query_latest_record(database: bytes) -> dict[str, object]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Verify the latest income/expense record from a SuiShouJi .kbf backup."
+        description="Verify an income/expense record from a recovered SuiShouJi database."
     )
     parser.add_argument(
-        "backup",
+        "input",
         nargs="?",
         type=Path,
-        help="Path to a .kbf backup. Defaults to the first .kbf in the repository root.",
+        help="Path to a .kbf backup or recovered SQLite database. Defaults to .kbf, then recovered/mymoney.sqlite.",
+    )
+    parser.add_argument(
+        "--order",
+        choices=("latest", "earliest"),
+        default="latest",
+        help="Select the latest or earliest income/expense record.",
     )
     parser.add_argument("--json", action="store_true", help="Emit JSON output")
     args = parser.parse_args()
 
-    backup = args.backup or default_backup()
-    record = query_latest_record(load_sqlite_from_backup(backup))
+    input_path = args.input or default_input()
+    record = query_record(load_sqlite_from_backup(input_path), args.order)
 
     if args.json:
         print(json.dumps(record, ensure_ascii=False, indent=2))
