@@ -49,8 +49,7 @@ python .\test\verify_record.py recovered\mymoney.sqlite --order earliest --json
 
 ## 2. 导出的 SQLite 如何存储记账数据
 
-恢复后的数据库中，普通记账流水主要存储在 `t_transaction`，分类信息存储在
-`t_category`。
+恢复后的数据库中，普通记账流水主要存储在 `t_transaction`，分类信息存储在 `t_category`。
 
 `t_transaction` 是流水表。验证脚本使用到的字段如下：
 
@@ -69,8 +68,7 @@ python .\test\verify_record.py recovered\mymoney.sqlite --order earliest --json
 - `categoryPOID`：分类主键。
 - `name`：分类名称。
 - `parentCategoryPOID`：父分类 ID，用于从二级分类找到一级分类。
-- `depth`：分类层级。当前样本中，普通一级分类为 `depth = 1`，普通二级分类
-  为 `depth = 2`。
+- `depth`：分类层级。当前样本中，普通一级分类为 `depth = 1`，普通二级分类为 `depth = 2`。
 - `path`：分类路径，例如 `/-1/<一级分类ID>/<二级分类ID>/`。
 - `type`：分类方向。当前样本中，`0` 表示支出分类，`1` 表示收入分类。
 
@@ -82,8 +80,7 @@ python .\test\verify_record.py recovered\mymoney.sqlite --order earliest --json
 4. 如果 `type = 0`，分类 ID 取 `sellerCategoryPOID`，金额取 `sellerMoney`。
 5. 如果 `type = 1`，分类 ID 取 `buyerCategoryPOID`，金额取 `buyerMoney`。
 6. 将分类 ID 关联到 `t_category.categoryPOID`，得到当前分类。
-7. 如果当前分类是二级分类，再将 `t_category.parentCategoryPOID` 关联回
-   `t_category.categoryPOID`，得到一级分类。
+7. 如果当前分类是二级分类，再将 `t_category.parentCategoryPOID` 关联回 `t_category.categoryPOID`，得到一级分类。
 
 ## 轻量级记账软件
 
@@ -103,23 +100,16 @@ TODO:
   cd app
   flutter create . --platforms=android,ios
   ```
-- [ ] 生成 Flutter 工程后，立即检查 Android 侧 Gradle 仓库配置。由于当前环境不
-  开 tun，不能直接依赖 `google()` 和 `mavenCentral()`。新 Flutter 模板通常改
-  `app/android/settings.gradle`，旧模板可能改 `app/android/build.gradle`。至少
-  使用：
+- [ ] 生成 Flutter 工程后，立即检查 Android 侧 Gradle 仓库配置。由于当前环境不开 tun，不能直接依赖 `google()` 和 `mavenCentral()`。新 Flutter 模板通常改 `app/android/settings.gradle`，旧模板可能改 `app/android/build.gradle`。至少使用：
   ```gradle
   maven { url = uri("https://maven.aliyun.com/repository/google") }
   maven { url = uri("https://maven.aliyun.com/repository/central") }
   maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
   ```
-- [ ] 建立 App 自有账本数据库 schema。不要长期直接使用随手记原始表结构；随手记
-  SQLite 只作为导入源。
-- [ ] 实现导入闭环：选择 `mymoney.sqlite` -> 读取 `t_transaction` 和
-  `t_category` -> 转换为 App 自有流水/分类/账户模型 -> 写入 App 账本。
+- [ ] 建立 App 管理的账本 schema 版本。可以复用导入得到的 SQLite 文件作为账本文件，但需要由 App 管理兼容迁移和必要增广，例如外币、加密状态、附件元数据、App 内部设置等；不要把随手记当前版本的原始表结构当成不可变的长期业务契约。
+- [ ] 实现导入闭环：选择 `mymoney.sqlite` -> 读取 `t_transaction` 和 `t_category` -> 在该账本文件或 App 管理的账本副本上执行必要 schema 迁移/增广 -> 展示流水列表。
 - [ ] 实现空白账本创建、多账本管理和账本备注。
 - [ ] 实现基础记账、流水列表、筛选、搜索、编辑。
 - [ ] 设计分类、账户、币种和加密保护的内部数据结构。
-- [ ] 评估并接入 Flutter 插件：`local_auth`、`flutter_secure_storage`、文件选择
-  插件、SQLite/ORM 方案。
-- [ ] 参考 `docs/development_environment.md` 和 `docs/next_context_prompt.md`
-  开启下一轮 App 开发对话。
+- [ ] 评估并接入 Flutter 插件：`local_auth`、`flutter_secure_storage`、文件选择插件、SQLite/ORM 方案。
+- [ ] 参考 `docs/development_environment.md` 和 `docs/next_context_prompt.md` 开启下一轮 App 开发对话。
