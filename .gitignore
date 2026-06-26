@@ -1,5 +1,4 @@
 *.kbf
-*.kdf
 *.sqlite
 *.sqlite3
 *.db
@@ -15,3 +14,6 @@ venv/
 dist/
 build/
 *.egg-info/
+.DS_Store
+*.log
+.agents/
