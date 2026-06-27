@@ -30,14 +30,14 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
 
   archive: ^4.0.7
   cupertino_icons: ^1.0.8
   file_picker: ^10.3.7
   flutter_riverpod: ^3.0.3
-  flutter_secure_storage: ^10.0.0
   intl: ^0.20.2
-  local_auth: ^3.0.0
   path: ^1.9.1
   path_provider: ^2.1.5
   sqlite3: ^2.9.4
@@ -64,6 +64,8 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+  assets:
+    - assets/default_ledger_template.json
 
   # To add assets to your application, add an assets section, like this:
   # assets:

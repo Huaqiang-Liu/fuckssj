@@ -5,10 +5,15 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqlite3/sqlite3.dart';
 
+import 'exchange_rate_store.dart';
+import 'ledger_configuration_store.dart';
 import '../importer/suishouji_backup_recovery.dart';
 
 class LedgerRepository {
   static const int maxLedgerNameLength = 40;
+  final LedgerConfigurationStore _configurationStore =
+      LedgerConfigurationStore();
+  final ExchangeRateStore _exchangeRateStore = ExchangeRateStore();
 
   Future<LedgerStoreState> loadStoreState() async {
     final store = await _readStore();
@@ -27,7 +32,8 @@ class LedgerRepository {
 
     for (final ledger in store.ledgers) {
       if (ledger.id == lastLedgerId && File(ledger.path).existsSync()) {
-        return ledger;
+        final configFile = await ensureLedgerConfiguration(ledger);
+        return ledger.copyWith(configurationPath: configFile.path);
       }
     }
 
@@ -99,6 +105,116 @@ class LedgerRepository {
       throw ArgumentError('Ledger does not exist: $ledgerId');
     }
     await _writeStore(store.copyWith(lastLedgerId: ledgerId));
+  }
+
+  Future<LedgerInfo> renameLedger({
+    required String ledgerId,
+    required String name,
+  }) async {
+    validateLedgerName(name);
+    final store = await _readStore();
+    final normalized = normalizeLedgerName(name);
+    final duplicate = store.ledgers.any(
+      (ledger) =>
+          ledger.id != ledgerId && normalizeLedgerName(ledger.name) == normalized,
+    );
+    if (duplicate) {
+      throw ArgumentError('账本名称已存在');
+    }
+
+    LedgerInfo? updatedLedger;
+    final ledgers = [
+      for (final ledger in store.ledgers)
+        if (ledger.id == ledgerId)
+          updatedLedger = ledger.copyWith(name: name.trim())
+        else
+          ledger,
+    ];
+    if (updatedLedger == null) {
+      throw ArgumentError('Ledger does not exist: $ledgerId');
+    }
+    await _writeStore(store.copyWith(ledgers: ledgers));
+    return updatedLedger;
+  }
+
+  Future<LedgerInfo> updateLedgerNote({
+    required String ledgerId,
+    required String note,
+  }) async {
+    LedgerInfo? updatedLedger;
+    final store = await _readStore();
+    final ledgers = [
+      for (final ledger in store.ledgers)
+        if (ledger.id == ledgerId)
+          updatedLedger = ledger.copyWith(note: note.trim())
+        else
+          ledger,
+    ];
+    if (updatedLedger == null) {
+      throw ArgumentError('Ledger does not exist: $ledgerId');
+    }
+    await _writeStore(store.copyWith(ledgers: ledgers));
+    return updatedLedger;
+  }
+
+  Future<void> deleteLedger(String ledgerId) async {
+    final store = await _readStore();
+    LedgerInfo? target;
+    final ledgers = <LedgerInfo>[];
+    for (final ledger in store.ledgers) {
+      if (ledger.id == ledgerId) {
+        target = ledger;
+      } else {
+        ledgers.add(ledger);
+      }
+    }
+    if (target == null) {
+      throw ArgumentError('Ledger does not exist: $ledgerId');
+    }
+
+    final ledgerFile = File(target.path);
+    if (ledgerFile.existsSync()) {
+      await ledgerFile.delete();
+    }
+    final configurationFile = target.configurationPath == null
+        ? await _configurationStore.configurationFile(target.id)
+        : File(target.configurationPath!);
+    if (configurationFile.existsSync()) {
+      await configurationFile.delete();
+    }
+
+    await _writeStore(
+      _LedgerStore(
+        ledgers: ledgers,
+        lastLedgerId: store.lastLedgerId == ledgerId ? null : store.lastLedgerId,
+      ),
+    );
+  }
+
+  Future<void> exportLedger({
+    required LedgerInfo ledger,
+    required String destinationPath,
+  }) async {
+    final source = File(ledger.path);
+    if (!source.existsSync()) {
+      throw ArgumentError('账本文件不存在：${ledger.path}');
+    }
+    await source.copy(destinationPath);
+  }
+
+  Future<File> ensureLedgerConfiguration(LedgerInfo ledger) {
+    return _ensureLedgerConfigurationAndExchangeRates(ledger);
+  }
+
+  Future<File> _ensureLedgerConfigurationAndExchangeRates(
+    LedgerInfo ledger,
+  ) async {
+    await _exchangeRateStore.ensureCache();
+    return _configurationStore.ensureConfiguration(
+      ledgerId: ledger.id,
+      databasePath: ledger.path,
+      preferDatabase: ledger.sourceKind != LedgerSourceKind.blank,
+    );
   }
 
   Future<void> migrateLedger(String databasePath) async {
@@ -196,20 +312,31 @@ class LedgerRepository {
   }) async {
     final store = await _readStore();
     final now = DateTime.now().toUtc();
-    final ledger = LedgerInfo(
+  final ledger = LedgerInfo(
       id: 'ledger_${now.microsecondsSinceEpoch}',
       name: name.trim(),
       path: path,
       sourceKind: sourceKind,
       createdAt: now,
+      configurationPath: null,
+      note: '',
+    );
+    await _exchangeRateStore.ensureCache();
+    final configurationFile = await _configurationStore.ensureConfiguration(
+      ledgerId: ledger.id,
+      databasePath: ledger.path,
+      preferDatabase: sourceKind != LedgerSourceKind.blank,
+    );
+    final registeredLedger = ledger.copyWith(
+      configurationPath: configurationFile.path,
     );
     await _writeStore(
       store.copyWith(
-        ledgers: [...store.ledgers, ledger],
-        lastLedgerId: ledger.id,
+        ledgers: [...store.ledgers, registeredLedger],
+        lastLedgerId: registeredLedger.id,
       ),
     );
-    return ledger;
+    return registeredLedger;
   }
 
   Future<_LedgerStore> _readStore() async {
@@ -272,6 +399,8 @@ class LedgerInfo {
     required this.path,
     required this.sourceKind,
     required this.createdAt,
+    required this.configurationPath,
+    required this.note,
   });
 
   final String id;
@@ -279,6 +408,24 @@ class LedgerInfo {
   final String path;
   final LedgerSourceKind sourceKind;
   final DateTime createdAt;
+  final String? configurationPath;
+  final String note;
+
+  LedgerInfo copyWith({
+    String? name,
+    String? configurationPath,
+    String? note,
+  }) {
+    return LedgerInfo(
+      id: id,
+      name: name ?? this.name,
+      path: path,
+      sourceKind: sourceKind,
+      createdAt: createdAt,
+      configurationPath: configurationPath ?? this.configurationPath,
+      note: note ?? this.note,
+    );
+  }
 
   Map<String, Object?> toJson() => {
     'id': id,
@@ -286,6 +433,8 @@ class LedgerInfo {
     'path': path,
     'sourceKind': sourceKind.name,
     'createdAt': createdAt.toIso8601String(),
+    'configurationPath': configurationPath,
+    'note': note,
   };
 
   factory LedgerInfo.fromJson(Map<String, Object?> json) {
@@ -295,6 +444,8 @@ class LedgerInfo {
       path: json['path'] as String,
       sourceKind: LedgerSourceKind.values.byName(json['sourceKind'] as String),
       createdAt: DateTime.parse(json['createdAt'] as String),
+      configurationPath: json['configurationPath'] as String?,
+      note: json['note'] as String? ?? '',
     );
   }
 }

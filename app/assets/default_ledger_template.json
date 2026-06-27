@@ -1,0 +1,671 @@
+{
+  "schemaVersion": 2,
+  "source": "recovered/mymoney.sqlite category seed",
+  "categories": [
+    {
+      "direction": "expense",
+      "items": [
+        {
+          "id": "ssj_57573917147808",
+          "name": "餐饮",
+          "children": [
+            {
+              "id": "ssj_57573917147809",
+              "name": "三餐",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147819",
+              "name": "早餐",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147816",
+              "name": "中餐",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147817",
+              "name": "晚餐",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147810",
+              "name": "买菜",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147811",
+              "name": "水果",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147818",
+              "name": "零食",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147812",
+              "name": "加餐",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147813",
+              "name": "下午茶",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147814",
+              "name": "烟酒饮品",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147815",
+              "name": "粮油调料",
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "ssj_57573917147861",
+          "name": "交通",
+          "children": [
+            {
+              "id": "ssj_57573917147862",
+              "name": "公交地铁",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147863",
+              "name": "打车",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147864",
+              "name": "私家车",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147865",
+              "name": "飞机火车",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147866",
+              "name": "共享单车",
+              "children": []
+            },
+            {
+              "id": "ssj_342492235",
+              "name": "停车费",
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "ssj_57573917147853",
+          "name": "购物",
+          "children": [
+            {
+              "id": "ssj_57573917147854",
+              "name": "日用品",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147855",
+              "name": "衣帽鞋包",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147856",
+              "name": "护肤美妆",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147857",
+              "name": "饰品",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147858",
+              "name": "数码",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147859",
+              "name": "电器",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147860",
+              "name": "家装",
+              "children": []
+            },
+            {
+              "id": "ssj_2646945128",
+              "name": "洗护用品",
+              "children": []
+            },
+            {
+              "id": "ssj_3317924330",
+              "name": "纪念品",
+              "children": []
+            },
+            {
+              "id": "ssj_356492006",
+              "name": "文体",
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "ssj_57573917147832",
+          "name": "居家",
+          "children": [
+            {
+              "id": "ssj_57573917147833",
+              "name": "水电煤",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147834",
+              "name": "话费",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147835",
+              "name": "网费",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147836",
+              "name": "房租",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147837",
+              "name": "物业",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147838",
+              "name": "维修",
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "ssj_57573917147878",
+          "name": "人情",
+          "children": [
+            {
+              "id": "ssj_57573917147879",
+              "name": "送礼",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147880",
+              "name": "请客",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147881",
+              "name": "孝心",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147882",
+              "name": "亲密付",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147883",
+              "name": "发红包",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147884",
+              "name": "借出",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147885",
+              "name": "还钱",
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "ssj_57573917147873",
+          "name": "医疗",
+          "children": [
+            {
+              "id": "ssj_57573917147874",
+              "name": "药品",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147875",
+              "name": "保健",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147876",
+              "name": "治疗",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147877",
+              "name": "美容",
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "ssj_57573917147867",
+          "name": "娱乐",
+          "children": [
+            {
+              "id": "ssj_57573917147869",
+              "name": "休闲",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147870",
+              "name": "约会",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147871",
+              "name": "聚会",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147868",
+              "name": "游戏",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147872",
+              "name": "健身",
+              "children": []
+            },
+            {
+              "id": "ssj_27769149754",
+              "name": "电影",
+              "children": []
+            },
+            {
+              "id": "ssj_1015291183",
+              "name": "音乐会",
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "ssj_57573917147828",
+          "name": "学习",
+          "children": [
+            {
+              "id": "ssj_57573917147829",
+              "name": "书籍",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147830",
+              "name": "培训",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147831",
+              "name": "网课",
+              "children": []
+            },
+            {
+              "id": "ssj_2501913054",
+              "name": "考试",
+              "children": []
+            },
+            {
+              "id": "ssj_344592579",
+              "name": "学宿费",
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "ssj_57573917147846",
+          "name": "金融",
+          "children": [
+            {
+              "id": "ssj_57573917147847",
+              "name": "房贷",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147848",
+              "name": "车贷",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147850",
+              "name": "购物分期",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147849",
+              "name": "手续费",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147851",
+              "name": "保险",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147852",
+              "name": "养卡",
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "ssj_57573917147820",
+          "name": "其他",
+          "children": [
+            {
+              "id": "ssj_57573917147821",
+              "name": "旅游",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147822",
+              "name": "装修",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147823",
+              "name": "宝宝",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147824",
+              "name": "生意",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147825",
+              "name": "宠物",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147826",
+              "name": "坏账",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147827",
+              "name": "丢失",
+              "children": []
+            },
+            {
+              "id": "ssj_2633968038",
+              "name": "洗照片",
+              "children": []
+            },
+            {
+              "id": "ssj_325593183",
+              "name": "剪头",
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "direction": "income",
+      "items": [
+        {
+          "id": "ssj_57573917147886",
+          "name": "职业收入",
+          "children": [
+            {
+              "id": "ssj_57573917147887",
+              "name": "工资",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147888",
+              "name": "经营",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147889",
+              "name": "利息",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147890",
+              "name": "兼职",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147891",
+              "name": "投资",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147892",
+              "name": "奖金",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147893",
+              "name": "加班",
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "ssj_57573917147839",
+          "name": "其它收入",
+          "children": [
+            {
+              "id": "ssj_57573917147840",
+              "name": "礼金",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147841",
+              "name": "抢红包",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147842",
+              "name": "意外来钱",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147844",
+              "name": "中奖",
+              "children": []
+            },
+            {
+              "id": "ssj_57573917147845",
+              "name": "退税",
+              "children": []
+            },
+            {
+              "id": "ssj_522492026",
+              "name": "别人还钱",
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "ssj_62309214",
+          "name": "理财",
+          "children": [
+            {
+              "id": "ssj_62309215",
+              "name": "理财产品",
+              "children": []
+            },
+            {
+              "id": "ssj_62309221",
+              "name": "基金",
+              "children": []
+            },
+            {
+              "id": "ssj_622492563",
+              "name": "存款",
+              "children": []
+            },
+            {
+              "id": "ssj_62309225",
+              "name": "债券",
+              "children": []
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "id": "group_cash",
+      "name": "现金",
+      "children": [
+        {
+          "id": "cash_default",
+          "name": "现金"
+        }
+      ]
+    },
+    {
+      "id": "group_credit_card",
+      "name": "信用卡",
+      "children": [
+        {
+          "id": "credit_card",
+          "name": "信用卡"
+        }
+      ]
+    },
+    {
+      "id": "group_financial",
+      "name": "金融账户",
+      "children": [
+        {
+          "id": "bank_card",
+          "name": "银行卡"
+        },
+        {
+          "id": "stock",
+          "name": "股票"
+        },
+        {
+          "id": "fund",
+          "name": "基金"
+        }
+      ]
+    },
+    {
+      "id": "group_virtual",
+      "name": "虚拟账户",
+      "children": [
+        {
+          "id": "alipay",
+          "name": "支付宝"
+        },
+        {
+          "id": "wechat_pay",
+          "name": "微信"
+        },
+        {
+          "id": "bai_tiao",
+          "name": "白条"
+        },
+        {
+          "id": "bus_card",
+          "name": "公交卡"
+        },
+        {
+          "id": "meal_card",
+          "name": "饭卡"
+        }
+      ]
+    },
+    {
+      "id": "group_liability",
+      "name": "负债账户",
+      "children": [
+        {
+          "id": "payable",
+          "name": "应付款项"
+        }
+      ]
+    },
+    {
+      "id": "group_debt",
+      "name": "债权账户",
+      "children": [
+        {
+          "id": "receivable",
+          "name": "应收款项"
+        }
+      ]
+    }
+  ],
+  "currencies": [
+    {
+      "code": "CNY",
+      "name": "人民币",
+      "isBase": true,
+      "enabled": true
+    },
+    {
+      "code": "USD",
+      "name": "美元",
+      "isBase": false,
+      "enabled": true
+    },
+    {
+      "code": "JPY",
+      "name": "日元",
+      "isBase": false,
+      "enabled": true
+    },
+    {
+      "code": "HKD",
+      "name": "港币",
+      "isBase": false,
+      "enabled": true
+    },
+    {
+      "code": "EUR",
+      "name": "欧元",
+      "isBase": false,
+      "enabled": true
+    },
+    {
+      "code": "GBP",
+      "name": "英镑",
+      "isBase": false,
+      "enabled": true
+    },
+    {
+      "code": "AUD",
+      "name": "澳元",
+      "isBase": false,
+      "enabled": true
+    }
+  ],
+  "exchangeRates": {
+    "source": "manual",
+    "base": "CNY",
+    "updatedAt": null,
+    "refreshAfterHours": 12,
+    "rates": {}
+  }
+}
