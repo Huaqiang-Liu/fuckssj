@@ -23,7 +23,7 @@ fuckssj 是一个本地优先的 Flutter 记账 App，目标是让用户能够�
 项目不计划发布到 Google Play 或其它应用商店。正式 APK 通过 GitHub Releases 分发。
 
 1. 打开本仓库的 GitHub Releases 页面。
-2. 下载最新版本的 `apk` 文件，例如 `fuckssj-v1.0.0+1-android-release.apk`。
+2. 下载最新版本的 `apk` 文件，例如 `fuckssj-v1.0.0+2-android-release.apk`。
 3. 在 Android 手机上打开该文件并安装。
 4. 如果系统提示禁止安装未知来源应用，需要先为当前文件管理器或浏览器允许“安装未知应用”。
 
@@ -93,7 +93,7 @@ test/
 当前版本号在 [app/pubspec.yaml](app/pubspec.yaml) 中维护：
 
 ```yaml
-version: 1.0.0+1
+version: 1.0.0+2
 ```
 
 ## Android Release 构建
@@ -144,7 +144,7 @@ app/build/app/outputs/flutter-apk/app-release.apk
 发布到 GitHub Releases 前，建议重命名为包含版本号的平台文件名：
 
 ```text
-fuckssj-v1.0.0+1-android-release.apk
+fuckssj-v1.0.0+2-android-release.apk
 ```
 
 ## 发布到 GitHub Releases
@@ -156,9 +156,9 @@ fuckssj-v1.0.0+1-android-release.apk
 1. 确认 `app/pubspec.yaml` 中的 `version` 已更新。
 2. 确认 README、LICENSE 和必要文档已经同步。
 3. 本地构建 release APK。
-4. 在 GitHub 上创建 tag，例如 `v1.0.0+1`。
+4. 在 GitHub 上创建 tag，例如 `v1.0.0+2`。
 5. 创建 GitHub Release。
-6. 上传 `fuckssj-v1.0.0+1-android-release.apk`。
+6. 上传 `fuckssj-v1.0.0+2-android-release.apk`。
 7. 在 Release notes 中说明安装方式、主要变化和已知限制。
 
 如果已经安装过旧版本，测试升级包时应使用同一个 release keystore 构建，直接覆盖安装验证数据是否保留。

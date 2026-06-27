@@ -435,7 +435,7 @@ class HomePage extends StatelessWidget {
 class _HomeFooter extends StatelessWidget {
   const _HomeFooter();
 
-  static const _version = '1.0.0+1';
+  static const _version = '1.0.0+2';
   static const _license = 'MIT';
 
   @override
@@ -1436,10 +1436,9 @@ class _TransactionEditPageState extends State<TransactionEditPage> {
   }
 
   Future<void> _pickAccount() async {
-    final picked = await _showTransactionChoicePicker(
+    final picked = await _showAccountChoicePicker(
       context,
-      title: '选择账户',
-      choices: _accountEditChoices(widget.config),
+      config: widget.config,
     );
     if (picked != null) {
       setState(() {
@@ -2742,11 +2741,13 @@ class _CategoryChoiceSectionView extends StatelessWidget {
     required this.title,
     required this.choices,
     this.useFullLabel = false,
+    this.labelBuilder,
   });
 
   final String title;
   final List<_TransactionChoice> choices;
   final bool useFullLabel;
+  final String Function(_TransactionChoice choice)? labelBuilder;
 
   @override
   Widget build(BuildContext context) {
@@ -2765,7 +2766,10 @@ class _CategoryChoiceSectionView extends StatelessWidget {
               for (final choice in choices)
                 ActionChip(
                   label: Text(
-                    useFullLabel ? _categoryRecentLabel(choice) : choice.label,
+                    labelBuilder?.call(choice) ??
+                        (useFullLabel
+                            ? _categoryRecentLabel(choice)
+                            : choice.label),
                   ),
                   onPressed: () => Navigator.of(context).pop(choice),
                 ),
@@ -2909,6 +2913,123 @@ void _collectCategoryEditChoices(
   }
   for (final child in children) {
     _collectCategoryEditChoices(child, choices, choice);
+  }
+}
+
+Future<_TransactionChoice?> _showAccountChoicePicker(
+  BuildContext context, {
+  required Map<String, Object?> config,
+}) {
+  final sections = _accountEditSections(config);
+  if (sections.isEmpty) {
+    showAppSnackBar(context, '选择账户 暂无可选项');
+    return Future.value(null);
+  }
+  return showDialog<_TransactionChoice>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('选择账户'),
+      contentPadding: const EdgeInsets.fromLTRB(24, 12, 24, 8),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 520),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final section in sections)
+                  _CategoryChoiceSectionView(
+                    title: section.title,
+                    choices: section.choices,
+                    labelBuilder: _accountChoiceChipLabel,
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+      ],
+    ),
+  );
+}
+
+String _accountChoiceChipLabel(_TransactionChoice choice) {
+  return choice.label.split(' · ').last;
+}
+
+List<_CategoryChoiceSection> _accountEditSections(
+  Map<String, Object?> config,
+) {
+  final accounts = config['accounts'];
+  if (accounts is! List) {
+    return const [];
+  }
+  final sections = <_CategoryChoiceSection>[];
+  for (final item in accounts) {
+    if (item is Map<String, Object?>) {
+      final section = _accountEditSection(item);
+      if (section != null) {
+        sections.add(section);
+      }
+    }
+  }
+  return sections;
+}
+
+_CategoryChoiceSection? _accountEditSection(Map<String, Object?> node) {
+  final root = _accountChoiceFromNode(node);
+  final children = [
+    for (final child in _mutableList(node['children']))
+      if (child is Map<String, Object?>) child,
+  ];
+  if (children.isEmpty) {
+    return _CategoryChoiceSection(title: root.label, choices: [root]);
+  }
+  final choices = <_TransactionChoice>[];
+  for (final child in children) {
+    _collectAccountLeafChoices(child, choices, root);
+  }
+  return _CategoryChoiceSection(title: root.label, choices: choices);
+}
+
+_TransactionChoice _accountChoiceFromNode(
+  Map<String, Object?> node, [
+  _TransactionChoice? parent,
+]) {
+  final name = _stringValue(node['name'], '未命名账户');
+  final id = _stringValue(node['id'], '');
+  final label = parent == null ? name : '${parent.label} · $name';
+  return _TransactionChoice(
+    id: id,
+    label: label,
+    value: name,
+    sqliteId: _sqliteIdFromConfigId(id, 'ssj_account_'),
+    parent: parent,
+  );
+}
+
+void _collectAccountLeafChoices(
+  Map<String, Object?> node,
+  List<_TransactionChoice> choices, [
+  _TransactionChoice? parent,
+]) {
+  final choice = _accountChoiceFromNode(node, parent);
+  final children = [
+    for (final child in _mutableList(node['children']))
+      if (child is Map<String, Object?>) child,
+  ];
+  if (children.isEmpty) {
+    choices.add(choice);
+    return;
+  }
+  for (final child in children) {
+    _collectAccountLeafChoices(child, choices, choice);
   }
 }
 
