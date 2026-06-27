@@ -7,7 +7,8 @@ void main() {
     await tester.pumpWidget(const FuckssjApp());
 
     expect(find.text('随手记迁移账本'), findsOneWidget);
-    expect(find.widgetWithText(FilledButton, '导入 SQLite'), findsOneWidget);
-    expect(find.widgetWithText(OutlinedButton, '新建空白账本'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, '创建空白账本'), findsOneWidget);
+    expect(find.widgetWithText(OutlinedButton, '从 SQLite 创建'), findsOneWidget);
+    expect(find.widgetWithText(OutlinedButton, '从 KBF 创建'), findsOneWidget);
   });
 }
