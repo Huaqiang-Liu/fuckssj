@@ -26,4 +26,4 @@ log.txt
 app/android/key.properties
 app/android/*.jks
 app/android/*.keystore
-.apk
+*.apk
