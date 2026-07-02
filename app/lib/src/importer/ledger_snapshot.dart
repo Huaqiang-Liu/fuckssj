@@ -101,6 +101,7 @@ class TransactionQuery {
     this.maxAmount,
     this.noteKeyword,
     this.categoryPaths,
+    this.accountIds,
     this.accountNames,
     this.currencyCodes,
     this.limit = 30,
@@ -115,6 +116,7 @@ class TransactionQuery {
   final double? maxAmount;
   final String? noteKeyword;
   final List<String>? categoryPaths;
+  final List<int>? accountIds;
   final List<String>? accountNames;
   final List<String>? currencyCodes;
   final int limit;
@@ -130,6 +132,7 @@ class TransactionQuery {
       maxAmount: maxAmount,
       noteKeyword: noteKeyword,
       categoryPaths: categoryPaths,
+      accountIds: accountIds,
       accountNames: accountNames,
       currencyCodes: currencyCodes,
       limit: limit ?? this.limit,

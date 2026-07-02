@@ -138,6 +138,7 @@ class LedgerConfigurationStore {
     return {
       ...config,
       'schemaVersion': currentSchemaVersion,
+      'accounts': _normalizeAccountGroups(_listOfMaps(config['accounts'])),
       'currencies': _mergeWithDefaultCurrencies(
         _listOfMaps(config['currencies']),
       ),
@@ -211,6 +212,14 @@ class LedgerConfigurationStore {
             order by ordered, accountPOID
           ''')
         : const <Row>[];
+
+    Map<String, Object?> accountNode(Row account) {
+      return {
+        'id': 'ssj_account_${account['accountPOID']}',
+        'name': _nameOrFallback(account['name'], '未命名账户'),
+      };
+    }
+
     final accountsByGroup = <int, List<Row>>{};
     for (final account in accounts) {
       final groupId = account['accountGroupPOID'] as int?;
@@ -227,11 +236,7 @@ class LedgerConfigurationStore {
           'name': '账户',
           'children': [
             for (final account in accounts)
-              if (account['hidden'] != 1)
-                {
-                  'id': 'ssj_account_${account['accountPOID']}',
-                  'name': _nameOrFallback(account['name'], '未命名账户'),
-                },
+              if (account['hidden'] != 1) accountNode(account),
           ],
         },
       ];
@@ -248,22 +253,15 @@ class LedgerConfigurationStore {
       }
     }
 
-    List<Map<String, Object?>> accountChildrenForGroup(int groupId) {
+    List<Map<String, Object?>> accountLeavesForGroup(int groupId) {
       final children = <Map<String, Object?>>[
         for (final account in accountsByGroup[groupId] ?? const <Row>[])
-          {
-            'id': 'ssj_account_${account['accountPOID']}',
-            'name': _nameOrFallback(account['name'], '未命名账户'),
-          },
+          accountNode(account),
       ];
 
       for (final childGroup in groupsByParent[groupId] ?? const <Row>[]) {
         final childGroupId = childGroup['accountGroupPOID'] as int;
-        children.add({
-          'id': 'ssj_group_$childGroupId',
-          'name': _nameOrFallback(childGroup['name'], '未命名账户组'),
-          'children': accountChildrenForGroup(childGroupId),
-        });
+        children.addAll(accountLeavesForGroup(childGroupId));
       }
       return children;
     }
@@ -282,13 +280,10 @@ class LedgerConfigurationStore {
     }
 
     final ungroupedAccounts = [
-      for (final entry in accountsByGroup.entries)
-        if (!groupIds.contains(entry.key))
-          for (final account in entry.value)
-            {
-              'id': 'ssj_account_${account['accountPOID']}',
-              'name': _nameOrFallback(account['name'], '未命名账户'),
-            },
+      for (final account in accounts)
+        if (account['hidden'] != 1 &&
+            !groupIds.contains(account['accountGroupPOID'] as int?))
+          accountNode(account),
     ];
 
     return [
@@ -296,7 +291,7 @@ class LedgerConfigurationStore {
         {
           'id': 'ssj_group_${group['accountGroupPOID']}',
           'name': _nameOrFallback(group['name'], '未命名账户组'),
-          'children': accountChildrenForGroup(group['accountGroupPOID'] as int),
+          'children': accountLeavesForGroup(group['accountGroupPOID'] as int),
         },
       if (ungroupedAccounts.isNotEmpty)
         {
@@ -305,6 +300,37 @@ class LedgerConfigurationStore {
           'children': ungroupedAccounts,
         },
     ];
+  }
+
+  List<Map<String, Object?>> _normalizeAccountGroups(
+    List<Map<String, Object?>> accounts,
+  ) {
+    return [
+      for (final account in accounts)
+        {...account, 'children': _flattenAccountLeaves(account['children'])},
+    ];
+  }
+
+  List<Map<String, Object?>> _flattenAccountLeaves(Object? value) {
+    if (value is! List) {
+      return const [];
+    }
+    final leaves = <Map<String, Object?>>[];
+    for (final item in value) {
+      if (item is! Map<String, Object?>) {
+        continue;
+      }
+      final children = _flattenAccountLeaves(item['children']);
+      if (children.isEmpty) {
+        final id = item['id']?.toString() ?? '';
+        if (!id.startsWith('ssj_group_')) {
+          leaves.add({...item}..remove('children'));
+        }
+      } else {
+        leaves.addAll(children);
+      }
+    }
+    return leaves;
   }
 
   List<Map<String, Object?>> _currenciesFromDatabase(Database db) {

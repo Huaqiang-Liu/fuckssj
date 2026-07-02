@@ -356,7 +356,7 @@ _FilteredTransactionSql _buildFilteredTransactionSql({
     }
   }
   _addCategoryFilter(whereParts, args, query.categoryPaths);
-  _addInFilter(whereParts, args, 'account_name', query.accountNames);
+  _addAccountFilter(whereParts, args, query);
   _addInFilter(whereParts, args, 'currency_code', query.currencyCodes);
 
   return _FilteredTransactionSql(
@@ -383,6 +383,12 @@ end
 case
     when c.depth <= 1 or p.categoryPOID is null then null
     else c.name
+end
+''';
+  const accountExpression = '''
+case
+    when t.type = 1 then coalesce(nullif(t.sellerAccountPOID, 0), t.buyerAccountPOID)
+    else coalesce(nullif(t.buyerAccountPOID, 0), t.sellerAccountPOID)
 end
 ''';
 
@@ -415,10 +421,7 @@ left join t_category p
     on p.categoryPOID = c.parentCategoryPOID
 ${context.hasAccountTable ? '''
 left join t_account a
-    on a.accountPOID = case
-        when t.type = 1 then t.buyerAccountPOID
-        else t.sellerAccountPOID
-    end
+    on a.accountPOID = $accountExpression
 ''' : ''}
 ${context.hasTransactionExtensionTable ? '''
 left join app_transaction_extensions e
@@ -478,6 +481,33 @@ void _addCategoryFilter(
       '(type = 0 and category_path in (${List.filled(expensePaths.length, '?').join(', ')}))',
     );
     args.addAll(expensePaths);
+  }
+  if (parts.isNotEmpty) {
+    whereParts.add('(${parts.join(' or ')})');
+  }
+}
+
+void _addAccountFilter(
+  List<String> whereParts,
+  List<Object?> args,
+  TransactionQuery query,
+) {
+  final ids = [
+    for (final value in query.accountIds ?? const <int>[])
+      if (value > 0) value,
+  ];
+  final names = [
+    for (final value in query.accountNames ?? const <String>[])
+      if (value.trim().isNotEmpty) value.trim(),
+  ];
+  final parts = <String>[];
+  if (ids.isNotEmpty) {
+    parts.add('account_id in (${List.filled(ids.length, '?').join(', ')})');
+    args.addAll(ids);
+  }
+  if (names.isNotEmpty) {
+    parts.add('account_name in (${List.filled(names.length, '?').join(', ')})');
+    args.addAll(names);
   }
   if (parts.isNotEmpty) {
     whereParts.add('(${parts.join(' or ')})');

@@ -712,6 +712,8 @@ class _LedgerPageState extends State<LedgerPage> {
       return null;
     }
 
+    final accountFilter = _selectedAccountFilterValues(_selectedAccounts);
+
     return TransactionQuery(
       startDate: startDate,
       endDate: endDate?.add(const Duration(days: 1)),
@@ -722,7 +724,8 @@ class _LedgerPageState extends State<LedgerPage> {
       noteKeyword: _noteController.text.trim().isEmpty
           ? null
           : _noteController.text.trim(),
-      accountNames: _selectedAccounts?.toList(),
+      accountIds: accountFilter.ids,
+      accountNames: accountFilter.names,
       categoryPaths: _selectedCategories?.toList(),
       currencyCodes: _selectedCurrencies?.toList(),
     );
@@ -1167,9 +1170,6 @@ class _TransactionListPageState extends State<TransactionListPage> {
               const SizedBox(height: 8),
               _PaginationControls(
                 controller: _pageController,
-                currentPage: _currentPage,
-                totalPages: _totalPages,
-                totalCount: _totalCount,
                 loading: _pageLoading,
                 canGoPrevious: _canGoPrevious,
                 canGoNext: _canGoNext,
@@ -3915,8 +3915,14 @@ Future<void> _deleteLedgerRowsForConfigNode({
         ids,
       );
     } else if (section == 'accounts') {
-      final accountIds = _collectSsjIds(node, 'ssj_account_');
-      final groupIds = _collectSsjIds(node, 'ssj_group_');
+      final groupIds = _expandSsjAccountGroupIds(
+        db,
+        _collectSsjIds(node, 'ssj_group_'),
+      );
+      final accountIds = {
+        ..._collectSsjIds(node, 'ssj_account_'),
+        ..._accountIdsForGroups(db, groupIds),
+      }.toList();
       if (accountIds.isNotEmpty && _sqliteTableExists(db, 't_transaction')) {
         _executeDeleteIn(
           db,
@@ -4015,6 +4021,47 @@ int? _ssjIdValue(String nodeId, String prefix) {
     return null;
   }
   return int.tryParse(nodeId.substring(prefix.length));
+}
+
+List<int> _expandSsjAccountGroupIds(Database db, List<int> groupIds) {
+  final expanded = <int>{
+    for (final id in groupIds)
+      if (id > 0) id,
+  };
+  if (expanded.isEmpty || !_sqliteTableExists(db, 't_account_group')) {
+    return expanded.toList();
+  }
+
+  var pending = expanded.toList();
+  while (pending.isNotEmpty) {
+    final placeholders = List.filled(pending.length, '?').join(', ');
+    final rows = db.select(
+      'select accountGroupPOID from t_account_group where parentAccountGroupPOID in ($placeholders)',
+      pending,
+    );
+    pending = [
+      for (final row in rows)
+        if (row['accountGroupPOID'] is int &&
+            expanded.add(row['accountGroupPOID'] as int))
+          row['accountGroupPOID'] as int,
+    ];
+  }
+  return expanded.toList();
+}
+
+List<int> _accountIdsForGroups(Database db, List<int> groupIds) {
+  if (groupIds.isEmpty || !_sqliteTableExists(db, 't_account')) {
+    return const [];
+  }
+  final placeholders = List.filled(groupIds.length, '?').join(', ');
+  final rows = db.select(
+    'select accountPOID from t_account where accountGroupPOID in ($placeholders)',
+    groupIds,
+  );
+  return [
+    for (final row in rows)
+      if (row['accountPOID'] is int) row['accountPOID'] as int,
+  ];
 }
 
 bool _sqliteTableExists(Database db, String tableName) {
@@ -4628,7 +4675,7 @@ class _DashboardCards extends StatelessWidget {
         ],
         GridView.count(
           crossAxisCount: 2,
-          childAspectRatio: 2.25,
+          childAspectRatio: 2,
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           mainAxisSpacing: 8,
@@ -4693,20 +4740,19 @@ class _DashboardCard extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(title, style: textTheme.titleSmall),
+            Text(
+              loading ? title : '$title · ${summary.count} 条',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: textTheme.titleSmall,
+            ),
             if (loading) ...[
               const SizedBox(height: 8),
               const LinearProgressIndicator(minHeight: 2),
-              const Spacer(),
             ] else ...[
-              Text(
-                '${summary.count} 条',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: textTheme.bodySmall,
-              ),
+              const SizedBox(height: 2),
               _AmountLine(
                 label: '收入',
                 amountText: '¥${_formatAmount(income)}',
@@ -4990,9 +5036,6 @@ class _DateFilterField extends StatelessWidget {
 class _PaginationControls extends StatelessWidget {
   const _PaginationControls({
     required this.controller,
-    required this.currentPage,
-    required this.totalPages,
-    required this.totalCount,
     required this.loading,
     required this.canGoPrevious,
     required this.canGoNext,
@@ -5004,9 +5047,6 @@ class _PaginationControls extends StatelessWidget {
   });
 
   final TextEditingController controller;
-  final int currentPage;
-  final int? totalPages;
-  final int? totalCount;
   final bool loading;
   final bool canGoPrevious;
   final bool canGoNext;
@@ -5018,36 +5058,30 @@ class _PaginationControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final description = [
-      '第 $currentPage / ${totalPages?.toString() ?? '?'} 页',
-      if (totalCount != null) '共 $totalCount 条',
-    ].join(' · ');
-
     return DecoratedBox(
       decoration: BoxDecoration(
         border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          crossAxisAlignment: WrapCrossAlignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(description, style: Theme.of(context).textTheme.bodySmall),
             IconButton.outlined(
               tooltip: '首页',
               onPressed: canGoPrevious ? onFirst : null,
               icon: const Icon(Icons.first_page),
             ),
+            const SizedBox(width: 8),
             IconButton.outlined(
               tooltip: '上一页',
               onPressed: canGoPrevious ? onPrevious : null,
               icon: const Icon(Icons.chevron_left),
             ),
+            const SizedBox(width: 8),
             SizedBox(
-              width: 84,
+              width: 72,
               child: TextField(
                 controller: controller,
                 enabled: !loading,
@@ -5056,17 +5090,22 @@ class _PaginationControls extends StatelessWidget {
                 textInputAction: TextInputAction.go,
                 decoration: const InputDecoration(
                   isDense: true,
-                  labelText: '页码',
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 10,
+                  ),
                   border: OutlineInputBorder(),
                 ),
                 onSubmitted: onSubmitted,
               ),
             ),
+            const SizedBox(width: 8),
             IconButton.outlined(
               tooltip: '下一页',
               onPressed: canGoNext ? onNext : null,
               icon: const Icon(Icons.chevron_right),
             ),
+            const SizedBox(width: 8),
             IconButton.outlined(
               tooltip: '尾页',
               onPressed: loading || onLast == null ? null : onLast,
@@ -5198,6 +5237,10 @@ class _QuerySummaryPanelState extends State<_QuerySummaryPanel> {
         ? '全量汇总加载失败'
         : '全量汇总 · ${summary.count} 条';
     final colorScheme = Theme.of(context).colorScheme;
+    final expandedMaxHeight = math.max(
+      160.0,
+      math.min(360.0, MediaQuery.sizeOf(context).height * 0.45),
+    );
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -5279,52 +5322,55 @@ class _QuerySummaryPanelState extends State<_QuerySummaryPanel> {
             ),
           ),
           if (_expanded)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (widget.errorMessage != null) ...[
-                    _ErrorText(message: '查询汇总失败：${widget.errorMessage}'),
-                    if (hasSummary) const SizedBox(height: 8),
-                  ],
-                  if (widget.loading && !hasSummary)
-                    const Center(
-                      child: SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+            ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: expandedMaxHeight),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (widget.errorMessage != null) ...[
+                      _ErrorText(message: '查询汇总失败：${widget.errorMessage}'),
+                      if (hasSummary) const SizedBox(height: 8),
+                    ],
+                    if (widget.loading && !hasSummary)
+                      const Center(
+                        child: SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    else ...[
+                      _QueryRatioBar(income: income, expense: expense),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _SummaryAmountText(
+                              label: '收入',
+                              amount: income,
+                              color: Colors.red.shade700,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _SummaryAmountText(
+                              label: '支出',
+                              amount: expense,
+                              color: Colors.green.shade700,
+                            ),
+                          ),
+                        ],
                       ),
-                    )
-                  else ...[
-                    _QueryRatioBar(income: income, expense: expense),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _SummaryAmountText(
-                            label: '收入',
-                            amount: income,
-                            color: Colors.red.shade700,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _SummaryAmountText(
-                            label: '支出',
-                            amount: expense,
-                            color: Colors.green.shade700,
-                          ),
-                        ),
+                      if (categoryRows.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        for (final row in categoryRows)
+                          _CategorySummaryRow(row: row),
                       ],
-                    ),
-                    if (categoryRows.isNotEmpty) ...[
-                      const SizedBox(height: 12),
-                      for (final row in categoryRows.take(8))
-                        _CategorySummaryRow(row: row),
                     ],
                   ],
-                ],
+                ),
               ),
             ),
         ],
@@ -5585,11 +5631,35 @@ String _querySummary(TransactionQuery query) {
       '金额 $minAmountText 至 $maxAmountText',
     if (query.noteKeyword != null && query.noteKeyword!.isNotEmpty)
       '备注：${query.noteKeyword}',
-    if (query.accountNames != null) '账户 ${query.accountNames!.length} 项',
+    if (query.accountIds != null || query.accountNames != null)
+      '账户 ${(query.accountIds?.length ?? 0) + (query.accountNames?.length ?? 0)} 项',
     if (query.currencyCodes != null) '币种 ${query.currencyCodes!.join(',')}',
     if (query.categoryPaths != null) '分类 ${query.categoryPaths!.length} 项',
   ];
   return parts.join(' · ');
+}
+
+({List<int>? ids, List<String>? names}) _selectedAccountFilterValues(
+  Set<String>? selected,
+) {
+  if (selected == null) {
+    return (ids: null, names: null);
+  }
+  final ids = <int>[];
+  final names = <String>[];
+  for (final rawValue in selected) {
+    final value = rawValue.trim();
+    if (value.isEmpty) {
+      continue;
+    }
+    final id = _ssjIdValue(value, 'ssj_account_') ?? int.tryParse(value);
+    if (id != null) {
+      ids.add(id);
+    } else {
+      names.add(value);
+    }
+  }
+  return (ids: ids.isEmpty ? null : ids, names: names.isEmpty ? null : names);
 }
 
 String _filterLabel(Set<String>? selected) {
@@ -6167,13 +6237,13 @@ _FilterTreeNode _accountFilterTreeNode(Map<String, Object?> node) {
       if (child is Map<String, Object?>) child,
   ];
   if (children.isEmpty) {
-    return _FilterTreeNode(label: name, values: {name});
+    final value = _accountFilterValue(node);
+    return _FilterTreeNode(label: name, values: {value});
   }
 
-  final childNodes = <_FilterTreeNode>[];
-  for (final child in children) {
-    childNodes.addAll(_accountLeafFilterNodes(child));
-  }
+  final childNodes = [
+    for (final child in children) _accountFilterTreeNode(child),
+  ].where((node) => node.values.isNotEmpty).toList();
   return _FilterTreeNode(
     label: name,
     values: {for (final child in childNodes) ...child.values},
@@ -6181,42 +6251,38 @@ _FilterTreeNode _accountFilterTreeNode(Map<String, Object?> node) {
   );
 }
 
-List<_FilterTreeNode> _accountLeafFilterNodes(Map<String, Object?> node) {
-  final name = _stringValue(node['name'], '未命名账户');
-  final children = [
-    for (final child in _mutableList(node['children']))
-      if (child is Map<String, Object?>) child,
-  ];
-  if (children.isEmpty) {
-    return [
-      _FilterTreeNode(label: name, values: {name}),
-    ];
-  }
-  return [for (final child in children) ..._accountLeafFilterNodes(child)];
-}
-
 void _collectAccountOptions(
   Map<String, Object?> node,
-  List<_FilterOption> options, [
+  List<_FilterOption> options, {
   String? parentName,
-]) {
+}) {
   final name = _stringValue(node['name'], '');
   final children = [
     for (final child in _mutableList(node['children']))
       if (child is Map<String, Object?>) child,
   ];
   if (children.isEmpty) {
+    final value = _accountFilterValue(node);
     options.add(
       _FilterOption(
-        value: name,
+        value: value,
         label: parentName == null ? name : '$parentName · $name',
       ),
     );
   } else {
+    final path = parentName == null ? name : '$parentName · $name';
     for (final child in children) {
-      _collectAccountOptions(child, options, name);
+      _collectAccountOptions(child, options, parentName: path);
     }
   }
+}
+
+String _accountFilterValue(Map<String, Object?> node) {
+  final id = _stringValue(node['id'], '');
+  if (_ssjIdValue(id, 'ssj_account_') != null) {
+    return id;
+  }
+  return _stringValue(node['name'], '未命名账户');
 }
 
 List<_FilterOption> _currencyFilterOptions(Map<String, Object?>? config) {
@@ -6298,13 +6364,14 @@ List<_CategorySummary> _summaryCategoryRows(
   }
   final rows = [
     for (final entry in totals.entries)
-      _CategorySummary(
-        kind: entry.key.startsWith('${TransactionKind.income.name}\u0000')
-            ? TransactionKind.income
-            : TransactionKind.expense,
-        category: entry.key.split('\u0000').last,
-        amount: entry.value,
-      ),
+      if (entry.value.abs() > 0.000001)
+        _CategorySummary(
+          kind: entry.key.startsWith('${TransactionKind.income.name}\u0000')
+              ? TransactionKind.income
+              : TransactionKind.expense,
+          category: entry.key.split('\u0000').last,
+          amount: entry.value,
+        ),
   ];
   rows.sort((a, b) => b.amount.compareTo(a.amount));
   return rows;

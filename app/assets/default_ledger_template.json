@@ -543,16 +543,6 @@
       ]
     },
     {
-      "id": "group_credit_card",
-      "name": "信用卡",
-      "children": [
-        {
-          "id": "credit_card",
-          "name": "信用卡"
-        }
-      ]
-    },
-    {
       "id": "group_financial",
       "name": "金融账户",
       "children": [
@@ -603,6 +593,10 @@
         {
           "id": "payable",
           "name": "应付款项"
+        },
+        {
+          "id": "credit_card",
+          "name": "信用卡"
         }
       ]
     },
@@ -610,6 +604,10 @@
       "id": "group_debt",
       "name": "债权账户",
       "children": [
+        {
+          "id": "loan",
+          "name": "公司报销"
+        },
         {
           "id": "receivable",
           "name": "应收款项"
