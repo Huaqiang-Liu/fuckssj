@@ -10,6 +10,49 @@ class LedgerSnapshot {
   final bool hasSuiShouJiTables;
 }
 
+class TransactionSummary {
+  const TransactionSummary({required this.count, required this.rows});
+
+  const TransactionSummary.empty() : count = 0, rows = const [];
+
+  final int count;
+  final List<TransactionSummaryRow> rows;
+}
+
+class TransactionSummaryRow {
+  const TransactionSummaryRow({
+    required this.kind,
+    required this.currencyCode,
+    required this.amount,
+    this.firstCategory,
+  });
+
+  final TransactionKind kind;
+  final String currencyCode;
+  final double amount;
+  final String? firstCategory;
+}
+
+class DashboardSummary {
+  const DashboardSummary({
+    required this.today,
+    required this.week,
+    required this.month,
+    required this.year,
+  });
+
+  const DashboardSummary.empty()
+    : today = const TransactionSummary.empty(),
+      week = const TransactionSummary.empty(),
+      month = const TransactionSummary.empty(),
+      year = const TransactionSummary.empty();
+
+  final TransactionSummary today;
+  final TransactionSummary week;
+  final TransactionSummary month;
+  final TransactionSummary year;
+}
+
 class TransactionRecord {
   const TransactionRecord({
     required this.id,
@@ -60,7 +103,7 @@ class TransactionQuery {
     this.categoryPaths,
     this.accountNames,
     this.currencyCodes,
-    this.limit = 200,
+    this.limit = 30,
     this.offset = 0,
   });
 
@@ -77,7 +120,7 @@ class TransactionQuery {
   final int limit;
   final int offset;
 
-  TransactionQuery copyWith({int? offset}) {
+  TransactionQuery copyWith({int? limit, int? offset}) {
     return TransactionQuery(
       startDate: startDate,
       endDate: endDate,
@@ -89,7 +132,7 @@ class TransactionQuery {
       categoryPaths: categoryPaths,
       accountNames: accountNames,
       currencyCodes: currencyCodes,
-      limit: limit,
+      limit: limit ?? this.limit,
       offset: offset ?? this.offset,
     );
   }

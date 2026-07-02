@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -289,10 +290,7 @@ class _LedgerHomePageState extends State<LedgerHomePage> {
       return;
     }
     try {
-      await _ledgerRepository.updateLedgerNote(
-        ledgerId: ledger.id,
-        note: note,
-      );
+      await _ledgerRepository.updateLedgerNote(ledgerId: ledger.id, note: note);
       await _refreshStoreState();
       if (mounted) {
         showAppSnackBar(context, '备注已保存');
@@ -491,26 +489,30 @@ class _LedgerPageState extends State<LedgerPage> {
   bool _includeIncome = true;
   bool _includeExpense = true;
   bool _querying = false;
-  late LedgerSnapshot _snapshot;
+  DashboardSummary? _dashboardSummary;
+  bool _dashboardLoading = true;
+  String? _dashboardError;
+  int _dashboardRequestId = 0;
 
   @override
   void initState() {
     super.initState();
-    _snapshot = widget.snapshot;
     _loadQueryConfig();
+    _refreshDashboardSummary();
   }
 
   @override
   void didUpdateWidget(covariant LedgerPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.ledger.id != widget.ledger.id) {
-      _snapshot = widget.snapshot;
       _selectedAccounts = null;
       _selectedCategories = null;
       _selectedCurrencies = null;
+      _dashboardSummary = null;
+      _dashboardError = null;
+      _dashboardLoading = true;
       _loadQueryConfig();
-    } else if (oldWidget.snapshot != widget.snapshot) {
-      _snapshot = widget.snapshot;
+      _refreshDashboardSummary();
     }
   }
 
@@ -543,6 +545,7 @@ class _LedgerPageState extends State<LedgerPage> {
           _currencyFilterOptions(config),
         );
       });
+      _refreshExchangeRatesInBackground();
     } catch (error) {
       if (mounted) {
         showAppSnackBar(context, '读取筛选配置失败：$error');
@@ -550,7 +553,56 @@ class _LedgerPageState extends State<LedgerPage> {
     }
   }
 
+  void _refreshExchangeRatesInBackground() {
+    final ledgerId = widget.ledger.id;
+    unawaited(
+      ExchangeRateStore()
+          .refreshIfStale()
+          .then((rates) {
+            if (!mounted || widget.ledger.id != ledgerId) {
+              return;
+            }
+            final config = _ledgerConfig;
+            if (config == null ||
+                jsonEncode(config['exchangeRates']) == jsonEncode(rates)) {
+              return;
+            }
+            setState(() {
+              _ledgerConfig = {...config, 'exchangeRates': rates};
+            });
+          })
+          .catchError((_) {}),
+    );
+  }
+
+  Future<void> _refreshDashboardSummary() async {
+    final requestId = ++_dashboardRequestId;
+    setState(() {
+      _dashboardLoading = true;
+      _dashboardError = null;
+    });
+    try {
+      final summary = await _importer.dashboardSummary(widget.ledger.path);
+      if (!mounted || requestId != _dashboardRequestId) {
+        return;
+      }
+      setState(() {
+        _dashboardSummary = summary;
+        _dashboardLoading = false;
+      });
+    } catch (error) {
+      if (!mounted || requestId != _dashboardRequestId) {
+        return;
+      }
+      setState(() {
+        _dashboardError = error.toString();
+        _dashboardLoading = false;
+      });
+    }
+  }
+
   Future<void> _submitQuery() async {
+    _clearInputFocus();
     final query = _buildQuery();
     if (query == null) {
       return;
@@ -560,7 +612,11 @@ class _LedgerPageState extends State<LedgerPage> {
       _querying = true;
     });
     try {
-      final result = await _importer.query(widget.ledger.path, query);
+      final pageQuery = query.copyWith(
+        limit: SuiShouJiImporter.defaultPageSize,
+        offset: 0,
+      );
+      final result = await _importer.query(widget.ledger.path, pageQuery);
       if (!mounted) {
         return;
       }
@@ -573,7 +629,8 @@ class _LedgerPageState extends State<LedgerPage> {
             builder: (context) => TransactionListPage(
               ledger: widget.ledger,
               snapshot: result,
-              query: query,
+              query: pageQuery,
+              config: _ledgerConfig ?? const <String, Object?>{},
             ),
           ),
         ),
@@ -593,6 +650,7 @@ class _LedgerPageState extends State<LedgerPage> {
   }
 
   Future<void> _openTransactionEditor({TransactionRecord? record}) async {
+    _clearInputFocus();
     final config = _ledgerConfig ?? await _loadLedgerConfig(widget.ledger);
     _ledgerConfig = config;
     if (!mounted) {
@@ -608,14 +666,12 @@ class _LedgerPageState extends State<LedgerPage> {
       ),
     );
     if (changed == true) {
-      final snapshot = await _importer.load(widget.ledger.path);
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _snapshot = snapshot;
-      });
+      unawaited(_refreshDashboardSummary());
     }
+  }
+
+  void _clearInputFocus() {
+    FocusManager.instance.primaryFocus?.unfocus();
   }
 
   TransactionQuery? _buildQuery() {
@@ -728,6 +784,7 @@ class _LedgerPageState extends State<LedgerPage> {
       nodes: _categoryFilterTree(_ledgerConfig),
       options: options,
       selectedValues: _selectedCategories,
+      rootTogglesInHeader: true,
     );
     if (selected != null) {
       setState(() {
@@ -801,7 +858,12 @@ class _LedgerPageState extends State<LedgerPage> {
               _ErrorText(message: widget.errorMessage!),
               const SizedBox(height: 16),
             ],
-            _DashboardCards(snapshot: _snapshot),
+            _DashboardCards(
+              summary: _dashboardSummary,
+              loading: _dashboardLoading,
+              errorMessage: _dashboardError,
+              config: _ledgerConfig,
+            ),
             const SizedBox(height: 16),
             _QueryPanel(
               startDate: _startDate,
@@ -831,7 +893,10 @@ class _LedgerPageState extends State<LedgerPage> {
                   _includeExpense = value;
                 });
               },
-              onReset: _resetQuery,
+              onReset: () {
+                _clearInputFocus();
+                _resetQuery();
+              },
               onQuery: _querying ? null : _submitQuery,
             ),
           ],
@@ -853,6 +918,7 @@ class _LedgerPageState extends State<LedgerPage> {
               IconButton.filledTonal(
                 tooltip: '账本设置',
                 onPressed: () async {
+                  _clearInputFocus();
                   await Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (context) =>
@@ -879,11 +945,13 @@ class TransactionListPage extends StatefulWidget {
     required this.ledger,
     required this.snapshot,
     required this.query,
+    required this.config,
   });
 
   final LedgerInfo ledger;
   final LedgerSnapshot snapshot;
   final TransactionQuery query;
+  final Map<String, Object?> config;
 
   @override
   State<TransactionListPage> createState() => _TransactionListPageState();
@@ -891,61 +959,154 @@ class TransactionListPage extends StatefulWidget {
 
 class _TransactionListPageState extends State<TransactionListPage> {
   final _importer = SuiShouJiImporter();
-  final _scrollController = ScrollController();
-  late final List<TransactionRecord> _transactions;
-  late bool _hasMore;
-  bool _loadingMore = false;
+  final _pageController = TextEditingController(text: '1');
+  late List<TransactionRecord> _transactions;
+  late TransactionQuery _currentQuery;
+  int? _totalCount;
+  TransactionSummary? _summary;
+  bool _pageLoading = false;
+  bool _summaryLoading = true;
+  String? _summaryError;
+  int _pageRequestId = 0;
+  int _summaryRequestId = 0;
   Map<String, Object?>? _ledgerConfig;
 
   @override
   void initState() {
     super.initState();
+    _currentQuery = widget.query.copyWith(
+      limit: widget.query.limit <= 0
+          ? SuiShouJiImporter.defaultPageSize
+          : widget.query.limit,
+      offset: widget.query.offset < 0 ? 0 : widget.query.offset,
+    );
     _transactions = [...widget.snapshot.transactions];
-    _hasMore = widget.snapshot.transactions.length >= widget.query.limit;
-    _scrollController.addListener(_maybeLoadMore);
+    _ledgerConfig = widget.config;
+    _syncPageController();
+    _refreshSummaryAndCount();
   }
 
   @override
   void dispose() {
-    _scrollController
-      ..removeListener(_maybeLoadMore)
-      ..dispose();
+    _pageController.dispose();
     super.dispose();
   }
 
-  Future<void> _maybeLoadMore() async {
-    if (!_hasMore || _loadingMore || !_scrollController.hasClients) {
-      return;
-    }
-    final position = _scrollController.position;
-    if (position.pixels < position.maxScrollExtent - 240) {
-      return;
-    }
+  int get _pageSize => _currentQuery.limit <= 0
+      ? SuiShouJiImporter.defaultPageSize
+      : _currentQuery.limit;
 
+  int get _currentPage => (_currentQuery.offset ~/ _pageSize) + 1;
+
+  int? get _totalPages {
+    final totalCount = _totalCount;
+    if (totalCount == null) {
+      return null;
+    }
+    return math.max(1, ((totalCount + _pageSize - 1) ~/ _pageSize));
+  }
+
+  bool get _canGoPrevious => !_pageLoading && _currentPage > 1;
+
+  bool get _canGoNext {
+    if (_pageLoading) {
+      return false;
+    }
+    final totalPages = _totalPages;
+    if (totalPages != null) {
+      return _currentPage < totalPages;
+    }
+    return _transactions.length >= _pageSize;
+  }
+
+  Future<void> _refreshSummaryAndCount() async {
+    final requestId = ++_summaryRequestId;
     setState(() {
-      _loadingMore = true;
+      _summaryLoading = true;
+      _summaryError = null;
     });
     try {
-      final next = await _importer.query(
+      final countFuture = _importer.count(widget.ledger.path, _currentQuery);
+      final summaryFuture = _importer.summarize(
         widget.ledger.path,
-        widget.query.copyWith(offset: _transactions.length),
+        _currentQuery,
       );
-      if (!mounted) {
+      final count = await countFuture;
+      final summary = await summaryFuture;
+      if (!mounted || requestId != _summaryRequestId) {
         return;
       }
       setState(() {
-        _transactions.addAll(next.transactions);
-        _hasMore = next.transactions.length >= widget.query.limit;
-        _loadingMore = false;
+        _totalCount = count;
+        _summary = summary;
+        _summaryLoading = false;
       });
+    } catch (error) {
+      if (!mounted || requestId != _summaryRequestId) {
+        return;
+      }
+      setState(() {
+        _summaryError = error.toString();
+        _summaryLoading = false;
+      });
+    }
+  }
+
+  Future<void> _loadPage(int page, {bool force = false}) async {
+    final totalPages = _totalPages;
+    final targetPage = totalPages == null
+        ? math.max(1, page)
+        : page.clamp(1, totalPages).toInt();
+    if (!force && targetPage == _currentPage) {
+      _syncPageController();
+      return;
+    }
+    final requestId = ++_pageRequestId;
+    final nextQuery = _currentQuery.copyWith(
+      limit: _pageSize,
+      offset: (targetPage - 1) * _pageSize,
+    );
+    setState(() {
+      _pageLoading = true;
+    });
+    try {
+      final snapshot = await _importer.query(widget.ledger.path, nextQuery);
+      if (!mounted || requestId != _pageRequestId) {
+        return;
+      }
+      setState(() {
+        _currentQuery = nextQuery;
+        _transactions = [...snapshot.transactions];
+        _pageLoading = false;
+      });
+      _syncPageController();
     } catch (error) {
       if (mounted) {
         setState(() {
-          _loadingMore = false;
+          _pageLoading = false;
         });
-        showAppSnackBar(context, '继续加载失败：$error');
+        _syncPageController();
+        showAppSnackBar(context, '加载页面失败：$error');
       }
     }
+  }
+
+  void _syncPageController() {
+    _pageController.text = _currentPage.toString();
+    _pageController.selection = TextSelection.collapsed(
+      offset: _pageController.text.length,
+    );
+  }
+
+  void _submitPageText(String text) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final page = int.tryParse(text.trim());
+    if (page == null || page < 1) {
+      _syncPageController();
+      showAppSnackBar(context, '页码必须是正整数');
+      return;
+    }
+    unawaited(_loadPage(page));
   }
 
   Future<void> _openTransactionEditor(TransactionRecord record) async {
@@ -964,16 +1125,12 @@ class _TransactionListPageState extends State<TransactionListPage> {
       ),
     );
     if (changed == true) {
-      final refreshed = await _importer.query(widget.ledger.path, widget.query);
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _transactions
-          ..clear()
-          ..addAll(refreshed.transactions);
-        _hasMore = refreshed.transactions.length >= widget.query.limit;
-      });
+      await _refreshSummaryAndCount();
+      final totalPages = _totalPages;
+      final targetPage = totalPages == null
+          ? _currentPage
+          : math.min(_currentPage, totalPages);
+      await _loadPage(targetPage, force: true);
     }
   }
 
@@ -984,18 +1141,47 @@ class _TransactionListPageState extends State<TransactionListPage> {
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: _LedgerSummary(
-            ledger: widget.ledger,
-            snapshot: LedgerSnapshot(
-              databasePath: widget.snapshot.databasePath,
-              transactions: _transactions,
-              hasSuiShouJiTables: widget.snapshot.hasSuiShouJiTables,
-            ),
-            title: '查询到 ${_transactions.length} 条流水',
-            subtitle: _querySummary(widget.query),
-            scrollController: _scrollController,
-            loadingMore: _loadingMore,
-            onRecordTap: _openTransactionEditor,
+          child: Column(
+            children: [
+              Expanded(
+                child: _LedgerSummary(
+                  ledger: widget.ledger,
+                  snapshot: LedgerSnapshot(
+                    databasePath: widget.snapshot.databasePath,
+                    transactions: _transactions,
+                    hasSuiShouJiTables: widget.snapshot.hasSuiShouJiTables,
+                  ),
+                  title: _totalCount == null
+                      ? '正在统计查询结果'
+                      : '查询到 $_totalCount 条流水',
+                  subtitle:
+                      '${_querySummary(_currentQuery)} · 第 $_currentPage / ${_totalPages?.toString() ?? '?'} 页',
+                  config: _ledgerConfig,
+                  summary: _summary,
+                  summaryLoading: _summaryLoading,
+                  summaryError: _summaryError,
+                  pageLoading: _pageLoading,
+                  onRecordTap: _openTransactionEditor,
+                ),
+              ),
+              const SizedBox(height: 8),
+              _PaginationControls(
+                controller: _pageController,
+                currentPage: _currentPage,
+                totalPages: _totalPages,
+                totalCount: _totalCount,
+                loading: _pageLoading,
+                canGoPrevious: _canGoPrevious,
+                canGoNext: _canGoNext,
+                onFirst: () => unawaited(_loadPage(1)),
+                onPrevious: () => unawaited(_loadPage(_currentPage - 1)),
+                onNext: () => unawaited(_loadPage(_currentPage + 1)),
+                onLast: _totalPages == null
+                    ? null
+                    : () => unawaited(_loadPage(_totalPages!)),
+                onSubmitted: _submitPageText,
+              ),
+            ],
           ),
         ),
       ),
@@ -1162,9 +1348,7 @@ class _ThemeSettingsPageState extends State<ThemeSettingsPage> {
                     label: Text(option.label),
                     selected: _settings.fontSizeBias == option.value,
                     onSelected: (_) {
-                      _update(
-                        _settings.copyWith(fontSizeBias: option.value),
-                      );
+                      _update(_settings.copyWith(fontSizeBias: option.value));
                     },
                   ),
               ],
@@ -1200,6 +1384,7 @@ class TransactionEditPage extends StatefulWidget {
 class _TransactionEditPageState extends State<TransactionEditPage> {
   final _amountController = TextEditingController();
   final _noteController = TextEditingController();
+  final _amountFocusNode = FocusNode();
 
   late TransactionKind _kind;
   late DateTime _tradeTime;
@@ -1221,12 +1406,18 @@ class _TransactionEditPageState extends State<TransactionEditPage> {
     _currencyCode = record?.currencyCode ?? 'CNY';
     _category = _initialCategoryChoice(record);
     _account = _initialAccountChoice(record);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_saving) {
+        _amountFocusNode.requestFocus();
+      }
+    });
   }
 
   @override
   void dispose() {
     _amountController.dispose();
     _noteController.dispose();
+    _amountFocusNode.dispose();
     super.dispose();
   }
 
@@ -1254,7 +1445,10 @@ class _TransactionEditPageState extends State<TransactionEditPage> {
             ],
             SegmentedButton<TransactionKind>(
               segments: const [
-                ButtonSegment(value: TransactionKind.expense, label: Text('支出')),
+                ButtonSegment(
+                  value: TransactionKind.expense,
+                  label: Text('支出'),
+                ),
                 ButtonSegment(value: TransactionKind.income, label: Text('收入')),
               ],
               selected: {_kind},
@@ -1274,6 +1468,8 @@ class _TransactionEditPageState extends State<TransactionEditPage> {
                 Expanded(
                   child: TextField(
                     controller: _amountController,
+                    focusNode: _amountFocusNode,
+                    autofocus: true,
                     enabled: !_saving,
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
@@ -1673,7 +1869,9 @@ class _LedgerConfigPageState extends State<LedgerConfigPage> {
     try {
       final config = await _loadLedgerConfig(widget.ledger);
       final normalizedConfig = _normalizeLedgerConfig(config);
-      if (jsonEncode(normalizedConfig) != jsonEncode(config)) {
+      final storedConfig = _ledgerConfigForStorage(normalizedConfig);
+      if (jsonEncode(storedConfig) !=
+          jsonEncode(_ledgerConfigForStorage(config))) {
         await _saveLedgerConfig(widget.ledger, normalizedConfig);
       }
       if (!mounted) {
@@ -1684,6 +1882,7 @@ class _LedgerConfigPageState extends State<LedgerConfigPage> {
         _error = null;
         _loading = false;
       });
+      _refreshExchangeRatesInBackground();
     } catch (error) {
       if (!mounted) {
         return;
@@ -1704,6 +1903,27 @@ class _LedgerConfigPageState extends State<LedgerConfigPage> {
     setState(() {
       _config = normalizedConfig;
     });
+  }
+
+  void _refreshExchangeRatesInBackground() {
+    unawaited(
+      ExchangeRateStore()
+          .refreshIfStale()
+          .then((rates) {
+            if (!mounted) {
+              return;
+            }
+            final config = _config;
+            if (config == null ||
+                jsonEncode(config['exchangeRates']) == jsonEncode(rates)) {
+              return;
+            }
+            setState(() {
+              _config = {...config, 'exchangeRates': rates};
+            });
+          })
+          .catchError((_) {}),
+    );
   }
 
   Future<void> _addRoot({String? direction}) async {
@@ -2535,11 +2755,14 @@ Future<Map<String, Object?>> _loadLedgerConfig(LedgerInfo ledger) async {
   final json = jsonDecode(await file.readAsString());
   if (json is Map<String, Object?>) {
     final normalized = _normalizeLedgerConfig(json);
-    normalized['exchangeRates'] = await ExchangeRateStore().loadOrRefresh();
-    if (jsonEncode(normalized) != jsonEncode(json)) {
-      await file.writeAsString(jsonEncode(normalized), flush: true);
+    final storedConfig = _ledgerConfigForStorage(normalized);
+    if (jsonEncode(storedConfig) != jsonEncode(json)) {
+      await file.writeAsString(jsonEncode(storedConfig), flush: true);
     }
-    return normalized;
+    return {
+      ...normalized,
+      'exchangeRates': await ExchangeRateStore().loadCached(),
+    };
   }
   throw const FormatException('配置文件必须是 JSON 对象');
 }
@@ -2551,7 +2774,9 @@ Future<void> _saveLedgerConfig(
   final path =
       ledger.configurationPath ??
       (await LedgerConfigurationStore().configurationFile(ledger.id)).path;
-  await File(path).writeAsString(jsonEncode(config), flush: true);
+  await File(
+    path,
+  ).writeAsString(jsonEncode(_ledgerConfigForStorage(config)), flush: true);
 }
 
 Future<void> _recordRecentCategoryUsage(
@@ -2963,9 +3188,7 @@ String _accountChoiceChipLabel(_TransactionChoice choice) {
   return choice.label.split(' · ').last;
 }
 
-List<_CategoryChoiceSection> _accountEditSections(
-  Map<String, Object?> config,
-) {
+List<_CategoryChoiceSection> _accountEditSections(Map<String, Object?> config) {
   final accounts = config['accounts'];
   if (accounts is! List) {
     return const [];
@@ -3085,7 +3308,8 @@ _TransactionChoice _currencyEditChoice(Map<String, Object?> currency) {
   final code = _stringValue(currency['code'], '').toUpperCase();
   return _TransactionChoice(
     id: code,
-    label: '${_currencyFlag(code)} $code · ${_stringValue(currency['name'], '未命名币种')}',
+    label:
+        '${_currencyFlag(code)} $code · ${_stringValue(currency['name'], '未命名币种')}',
     value: code,
   );
 }
@@ -3170,7 +3394,10 @@ Future<void> _saveLedgerTransaction({
   }
 }
 
-Future<void> _deleteLedgerTransaction(String databasePath, String recordId) async {
+Future<void> _deleteLedgerTransaction(
+  String databasePath,
+  String recordId,
+) async {
   final transactionId = int.tryParse(recordId);
   if (transactionId == null) {
     throw ArgumentError('流水 ID 无效：$recordId');
@@ -3186,9 +3413,10 @@ Future<void> _deleteLedgerTransaction(String databasePath, String recordId) asyn
       ]);
     }
     if (_sqliteTableExists(db, 'app_transaction_extensions')) {
-      db.execute('delete from app_transaction_extensions where transaction_id = ?', [
-        recordId,
-      ]);
+      db.execute(
+        'delete from app_transaction_extensions where transaction_id = ?',
+        [recordId],
+      );
     }
     db.execute('commit');
     transactionStarted = false;
@@ -3352,14 +3580,11 @@ int _insertTransaction(
     }
   }
   final placeholders = List.filled(columns.length, '?').join(', ');
-  db.execute(
-    '''
+  db.execute('''
     insert into t_transaction(
       ${columns.map(_quoteSqlIdentifier).join(', ')}
     ) values ($placeholders)
-    ''',
-    values,
-  );
+    ''', values);
   return transactionId;
 }
 
@@ -3382,12 +3607,10 @@ void _upsertTableRow(
 }) {
   final quotedTable = _quoteSqlIdentifier(tableName);
   final quotedPrimaryKey = _quoteSqlIdentifier(primaryKeyColumn);
-  final exists = db
-      .select(
-        'select 1 from $quotedTable where $quotedPrimaryKey = ? limit 1',
-        [primaryKeyValue],
-      )
-      .isNotEmpty;
+  final exists = db.select(
+    'select 1 from $quotedTable where $quotedPrimaryKey = ? limit 1',
+    [primaryKeyValue],
+  ).isNotEmpty;
   if (exists) {
     final columns = {
       for (final column in _sqliteColumns(db, tableName))
@@ -3450,14 +3673,11 @@ void _insertTableRow(
     }
   }
   final placeholders = List.filled(insertColumns.length, '?').join(', ');
-  db.execute(
-    '''
+  db.execute('''
     insert into ${_quoteSqlIdentifier(tableName)}(
       ${insertColumns.map(_quoteSqlIdentifier).join(', ')}
     ) values ($placeholders)
-    ''',
-    insertValues,
-  );
+    ''', insertValues);
 }
 
 void _updateTransaction(
@@ -3837,6 +4057,12 @@ Map<String, Object?> _normalizeLedgerConfig(Map<String, Object?> config) {
   final normalized = _jsonMapCopy(config);
   _normalizeCurrencyOptions(normalized);
   return normalized;
+}
+
+Map<String, Object?> _ledgerConfigForStorage(Map<String, Object?> config) {
+  final stored = _jsonMapCopy(config);
+  stored.remove('exchangeRates');
+  return stored;
 }
 
 void _normalizeCurrencyOptions(Map<String, Object?> config) {
@@ -4376,43 +4602,63 @@ class _LedgerActions extends StatelessWidget {
 }
 
 class _DashboardCards extends StatelessWidget {
-  const _DashboardCards({required this.snapshot});
+  const _DashboardCards({
+    required this.summary,
+    required this.loading,
+    required this.errorMessage,
+    required this.config,
+  });
 
-  final LedgerSnapshot snapshot;
+  final DashboardSummary? summary;
+  final bool loading;
+  final String? errorMessage;
+  final Map<String, Object?>? config;
 
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
-    final today = DateUtils.dateOnly(now);
-    final tomorrow = today.add(const Duration(days: 1));
-    final weekStart = today.subtract(Duration(days: today.weekday - 1));
-    final monthStart = DateTime(today.year, today.month);
-    final yearStart = DateTime(today.year);
-    final transactions = snapshot.transactions;
+    final dashboard = summary ?? const DashboardSummary.empty();
+    final cardLoading = loading && summary == null;
 
-    return GridView.count(
-      crossAxisCount: 2,
-      childAspectRatio: 2.25,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      mainAxisSpacing: 8,
-      crossAxisSpacing: 8,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _DashboardCard.fromRecords(
-          title: '今天',
-          records: _recordsInRange(transactions, today, tomorrow),
-        ),
-        _DashboardCard.fromRecords(
-          title: '本周',
-          records: _recordsInRange(transactions, weekStart, tomorrow),
-        ),
-        _DashboardCard.fromRecords(
-          title: '本月',
-          records: _recordsInRange(transactions, monthStart, tomorrow),
-        ),
-        _DashboardCard.fromRecords(
-          title: '本年',
-          records: _recordsInRange(transactions, yearStart, tomorrow),
+        if (errorMessage != null) ...[
+          _ErrorText(message: '看板汇总加载失败：$errorMessage'),
+          const SizedBox(height: 8),
+        ],
+        GridView.count(
+          crossAxisCount: 2,
+          childAspectRatio: 2.25,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 8,
+          crossAxisSpacing: 8,
+          children: [
+            _DashboardCard(
+              title: '今天',
+              summary: dashboard.today,
+              loading: cardLoading,
+              config: config,
+            ),
+            _DashboardCard(
+              title: '本周',
+              summary: dashboard.week,
+              loading: cardLoading,
+              config: config,
+            ),
+            _DashboardCard(
+              title: '本月',
+              summary: dashboard.month,
+              loading: cardLoading,
+              config: config,
+            ),
+            _DashboardCard(
+              title: '本年',
+              summary: dashboard.year,
+              loading: cardLoading,
+              config: config,
+            ),
+          ],
         ),
       ],
     );
@@ -4422,16 +4668,15 @@ class _DashboardCards extends StatelessWidget {
 class _DashboardCard extends StatelessWidget {
   _DashboardCard({
     required this.title,
-    required Iterable<TransactionRecord> records,
-  }) : income = _sum(records, TransactionKind.income),
-       expense = _sum(records, TransactionKind.expense);
-
-  _DashboardCard.fromRecords({
-    required String title,
-    required Iterable<TransactionRecord> records,
-  }) : this(title: title, records: records);
+    required this.summary,
+    required this.loading,
+    required Map<String, Object?>? config,
+  }) : income = _summaryTotalCny(summary, TransactionKind.income, config),
+       expense = _summaryTotalCny(summary, TransactionKind.expense, config);
 
   final String title;
+  final TransactionSummary summary;
+  final bool loading;
   final double income;
   final double expense;
 
@@ -4451,16 +4696,28 @@ class _DashboardCard extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.start,
           children: [
             Text(title, style: textTheme.titleSmall),
-            _AmountLine(
-              label: '收入',
-              amountText: '${_formatAmount(income)} 元',
-              color: Colors.red.shade700,
-            ),
-            _AmountLine(
-              label: '支出',
-              amountText: '-${_formatAmount(expense)} 元',
-              color: Colors.green.shade700,
-            ),
+            if (loading) ...[
+              const SizedBox(height: 8),
+              const LinearProgressIndicator(minHeight: 2),
+              const Spacer(),
+            ] else ...[
+              Text(
+                '${summary.count} 条',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: textTheme.bodySmall,
+              ),
+              _AmountLine(
+                label: '收入',
+                amountText: '¥${_formatAmount(income)}',
+                color: Colors.red.shade700,
+              ),
+              _AmountLine(
+                label: '支出',
+                amountText: '-¥${_formatAmount(expense)}',
+                color: Colors.green.shade700,
+              ),
+            ],
           ],
         ),
       ),
@@ -4730,23 +4987,121 @@ class _DateFilterField extends StatelessWidget {
   }
 }
 
+class _PaginationControls extends StatelessWidget {
+  const _PaginationControls({
+    required this.controller,
+    required this.currentPage,
+    required this.totalPages,
+    required this.totalCount,
+    required this.loading,
+    required this.canGoPrevious,
+    required this.canGoNext,
+    required this.onFirst,
+    required this.onPrevious,
+    required this.onNext,
+    required this.onLast,
+    required this.onSubmitted,
+  });
+
+  final TextEditingController controller;
+  final int currentPage;
+  final int? totalPages;
+  final int? totalCount;
+  final bool loading;
+  final bool canGoPrevious;
+  final bool canGoNext;
+  final VoidCallback onFirst;
+  final VoidCallback onPrevious;
+  final VoidCallback onNext;
+  final VoidCallback? onLast;
+  final ValueChanged<String> onSubmitted;
+
+  @override
+  Widget build(BuildContext context) {
+    final description = [
+      '第 $currentPage / ${totalPages?.toString() ?? '?'} 页',
+      if (totalCount != null) '共 $totalCount 条',
+    ].join(' · ');
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text(description, style: Theme.of(context).textTheme.bodySmall),
+            IconButton.outlined(
+              tooltip: '首页',
+              onPressed: canGoPrevious ? onFirst : null,
+              icon: const Icon(Icons.first_page),
+            ),
+            IconButton.outlined(
+              tooltip: '上一页',
+              onPressed: canGoPrevious ? onPrevious : null,
+              icon: const Icon(Icons.chevron_left),
+            ),
+            SizedBox(
+              width: 84,
+              child: TextField(
+                controller: controller,
+                enabled: !loading,
+                textAlign: TextAlign.center,
+                keyboardType: TextInputType.number,
+                textInputAction: TextInputAction.go,
+                decoration: const InputDecoration(
+                  isDense: true,
+                  labelText: '页码',
+                  border: OutlineInputBorder(),
+                ),
+                onSubmitted: onSubmitted,
+              ),
+            ),
+            IconButton.outlined(
+              tooltip: '下一页',
+              onPressed: canGoNext ? onNext : null,
+              icon: const Icon(Icons.chevron_right),
+            ),
+            IconButton.outlined(
+              tooltip: '尾页',
+              onPressed: loading || onLast == null ? null : onLast,
+              icon: const Icon(Icons.last_page),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _LedgerSummary extends StatelessWidget {
   const _LedgerSummary({
     required this.ledger,
     required this.snapshot,
+    required this.config,
+    required this.summary,
+    required this.summaryLoading,
+    required this.summaryError,
+    required this.pageLoading,
     this.title,
     this.subtitle,
-    this.scrollController,
-    this.loadingMore = false,
     this.onRecordTap,
   });
 
   final LedgerInfo ledger;
   final LedgerSnapshot snapshot;
+  final Map<String, Object?>? config;
+  final TransactionSummary? summary;
+  final bool summaryLoading;
+  final String? summaryError;
+  final bool pageLoading;
   final String? title;
   final String? subtitle;
-  final ScrollController? scrollController;
-  final bool loadingMore;
   final ValueChanged<TransactionRecord>? onRecordTap;
 
   @override
@@ -4771,33 +5126,341 @@ class _LedgerSummary extends StatelessWidget {
           style: Theme.of(context).textTheme.bodySmall,
         ),
         const Divider(height: 24),
+        _QuerySummaryPanel(
+          summary: summary,
+          loading: summaryLoading,
+          errorMessage: summaryError,
+          config: config,
+        ),
+        const SizedBox(height: 12),
+        if (pageLoading) ...[
+          const LinearProgressIndicator(minHeight: 2),
+          const SizedBox(height: 8),
+        ],
         if (transactions.isEmpty)
           const Expanded(child: Center(child: Text('暂无流水')))
         else
           Expanded(
             child: ListView.separated(
-              controller: scrollController,
-              itemCount: transactions.length + (loadingMore ? 1 : 0),
+              itemCount: transactions.length,
               separatorBuilder: (context, index) => const Divider(height: 1),
-              itemBuilder: (context, index) {
-                if (index >= transactions.length) {
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 16),
-                    child: Center(child: CircularProgressIndicator()),
-                  );
-                }
-                return _TransactionTile(
-                  record: transactions[index],
-                  onTap: onRecordTap == null
-                      ? null
-                      : () => onRecordTap!(transactions[index]),
-                );
-              },
+              itemBuilder: (context, index) => _TransactionTile(
+                record: transactions[index],
+                onTap: onRecordTap == null
+                    ? null
+                    : () => onRecordTap!(transactions[index]),
+              ),
             ),
           ),
       ],
     );
   }
+}
+
+class _QuerySummaryPanel extends StatefulWidget {
+  const _QuerySummaryPanel({
+    required this.summary,
+    required this.loading,
+    required this.errorMessage,
+    required this.config,
+  });
+
+  final TransactionSummary? summary;
+  final bool loading;
+  final String? errorMessage;
+  final Map<String, Object?>? config;
+
+  @override
+  State<_QuerySummaryPanel> createState() => _QuerySummaryPanelState();
+}
+
+class _QuerySummaryPanelState extends State<_QuerySummaryPanel> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final summary = widget.summary ?? const TransactionSummary.empty();
+    final income = _summaryTotalCny(
+      summary,
+      TransactionKind.income,
+      widget.config,
+    );
+    final expense = _summaryTotalCny(
+      summary,
+      TransactionKind.expense,
+      widget.config,
+    );
+    final categoryRows = _summaryCategoryRows(summary, widget.config);
+    final hasSummary = widget.summary != null;
+    final headerText = widget.loading
+        ? (hasSummary ? '全量汇总更新中 · ${summary.count} 条' : '全量汇总加载中')
+        : widget.errorMessage != null && !hasSummary
+        ? '全量汇总加载失败'
+        : '全量汇总 · ${summary.count} 条';
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: () {
+              setState(() {
+                _expanded = !_expanded;
+              });
+            },
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 40),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(7),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    _expanded
+                        ? Icons.expand_less_outlined
+                        : Icons.expand_more_outlined,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      headerText,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                  ),
+                  if (widget.loading && !hasSummary) ...[
+                    const SizedBox(width: 8),
+                    const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ],
+                  if (hasSummary) ...[
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        '收入 ¥${_formatAmount(income)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.end,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Colors.red.shade700,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        '支出 ¥${_formatAmount(expense)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.end,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Colors.green.shade700,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          if (_expanded)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (widget.errorMessage != null) ...[
+                    _ErrorText(message: '查询汇总失败：${widget.errorMessage}'),
+                    if (hasSummary) const SizedBox(height: 8),
+                  ],
+                  if (widget.loading && !hasSummary)
+                    const Center(
+                      child: SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  else ...[
+                    _QueryRatioBar(income: income, expense: expense),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _SummaryAmountText(
+                            label: '收入',
+                            amount: income,
+                            color: Colors.red.shade700,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _SummaryAmountText(
+                            label: '支出',
+                            amount: expense,
+                            color: Colors.green.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (categoryRows.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      for (final row in categoryRows.take(8))
+                        _CategorySummaryRow(row: row),
+                    ],
+                  ],
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QueryRatioBar extends StatelessWidget {
+  const _QueryRatioBar({required this.income, required this.expense});
+
+  final double income;
+  final double expense;
+
+  @override
+  Widget build(BuildContext context) {
+    final total = income + expense;
+    if (total <= 0) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(4),
+        child: Container(
+          height: 12,
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        ),
+      );
+    }
+    final incomeFlex = income <= 0
+        ? 0
+        : math.max(1, (income / total * 1000).round());
+    final expenseFlex = expense <= 0
+        ? 0
+        : math.max(1, (expense / total * 1000).round());
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(4),
+      child: SizedBox(
+        height: 12,
+        child: Row(
+          children: [
+            if (incomeFlex > 0)
+              Expanded(
+                flex: incomeFlex,
+                child: ColoredBox(color: Colors.red.shade700),
+              ),
+            if (expenseFlex > 0)
+              Expanded(
+                flex: expenseFlex,
+                child: ColoredBox(color: Colors.green.shade700),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SummaryAmountText extends StatelessWidget {
+  const _SummaryAmountText({
+    required this.label,
+    required this.amount,
+    required this.color,
+  });
+
+  final String label;
+  final double amount;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      '$label ¥${_formatAmount(amount)}',
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+        color: color,
+        fontWeight: FontWeight.w600,
+      ),
+    );
+  }
+}
+
+class _CategorySummaryRow extends StatelessWidget {
+  const _CategorySummaryRow({required this.row});
+
+  final _CategorySummary row;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = row.kind == TransactionKind.income
+        ? Colors.red.shade700
+        : Colors.green.shade700;
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 38,
+            child: Text(
+              row.kind.label,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: color,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              row.category,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            '¥${_formatAmount(row.amount)}',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CategorySummary {
+  const _CategorySummary({
+    required this.kind,
+    required this.category,
+    required this.amount,
+  });
+
+  final TransactionKind kind;
+  final String category;
+  final double amount;
 }
 
 class _TransactionTile extends StatelessWidget {
@@ -5007,6 +5670,7 @@ Future<Set<String>?> _showTreeMultiSelectFilter(
   required List<_FilterTreeNode> nodes,
   required List<_FilterOption> options,
   required Set<String>? selectedValues,
+  bool rootTogglesInHeader = false,
 }) {
   if (options.isEmpty || nodes.isEmpty) {
     showAppSnackBar(context, '$title 暂无可选项');
@@ -5020,6 +5684,7 @@ Future<Set<String>?> _showTreeMultiSelectFilter(
       allValues: {for (final option in options) option.value},
       selectedValues:
           selectedValues ?? {for (final option in options) option.value},
+      rootTogglesInHeader: rootTogglesInHeader,
     ),
   );
 }
@@ -5113,12 +5778,14 @@ class _TreeMultiSelectFilterDialog extends StatefulWidget {
     required this.nodes,
     required this.allValues,
     required this.selectedValues,
+    required this.rootTogglesInHeader,
   });
 
   final String title;
   final List<_FilterTreeNode> nodes;
   final Set<String> allValues;
   final Set<String> selectedValues;
+  final bool rootTogglesInHeader;
 
   @override
   State<_TreeMultiSelectFilterDialog> createState() =>
@@ -5144,41 +5811,35 @@ class _TreeMultiSelectFilterDialogState
         child: ListView(
           shrinkWrap: true,
           children: [
-            _FilterCheckboxRow(
-              label: '全选',
-              value: _checkboxValue(widget.allValues),
-              onChanged: (_) {
-                final shouldSelect = _checkboxValue(widget.allValues) != true;
-                setState(() {
-                  _selected
-                    ..clear()
-                    ..addAll(
-                      shouldSelect ? widget.allValues : const <String>{},
-                    );
-                });
-              },
-            ),
-            const Divider(height: 1),
-            for (final node in widget.nodes) ...[
-              _FilterCheckboxRow(
-                label: node.label,
-                value: _checkboxValue(node.values),
-                onChanged: (_) => _setValues(
-                  node.values,
-                  _checkboxValue(node.values) != true,
-                ),
-              ),
-              for (final child in node.children)
-                _FilterCheckboxRow(
-                  label: child.label,
-                  indent: 28,
-                  value: _checkboxValue(child.values),
-                  onChanged: (_) => _setValues(
-                    child.values,
-                    _checkboxValue(child.values) != true,
+            if (widget.rootTogglesInHeader)
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  _FilterInlineCheckbox(
+                    label: '全选',
+                    value: _checkboxValue(widget.allValues),
+                    onChanged: (_) => _toggleAllValues(),
                   ),
-                ),
-            ],
+                  for (final node in widget.nodes)
+                    _FilterInlineCheckbox(
+                      label: node.label,
+                      value: _checkboxValue(node.values),
+                      onChanged: (_) => _setValues(
+                        node.values,
+                        _checkboxValue(node.values) != true,
+                      ),
+                    ),
+                ],
+              )
+            else
+              _FilterCheckboxRow(
+                label: '全选',
+                value: _checkboxValue(widget.allValues),
+                onChanged: (_) => _toggleAllValues(),
+              ),
+            const Divider(height: 1),
+            ..._visibleNodeRows(),
           ],
         ),
       ),
@@ -5193,6 +5854,44 @@ class _TreeMultiSelectFilterDialogState
         ),
       ],
     );
+  }
+
+  void _toggleAllValues() {
+    final shouldSelect = _checkboxValue(widget.allValues) != true;
+    setState(() {
+      _selected
+        ..clear()
+        ..addAll(shouldSelect ? widget.allValues : const <String>{});
+    });
+  }
+
+  List<Widget> _nodeRows(_FilterTreeNode node, double indent) {
+    return [
+      _FilterCheckboxRow(
+        label: node.label,
+        value: _checkboxValue(node.values),
+        onChanged: (_) =>
+            _setValues(node.values, _checkboxValue(node.values) != true),
+        indent: indent,
+      ),
+      for (final child in node.children) ..._nodeRows(child, indent + 28),
+    ];
+  }
+
+  List<Widget> _visibleNodeRows() {
+    final rows = <Widget>[];
+    if (!widget.rootTogglesInHeader) {
+      for (final node in widget.nodes) {
+        rows.addAll(_nodeRows(node, 0));
+      }
+      return rows;
+    }
+    for (final node in widget.nodes) {
+      for (final child in node.children) {
+        rows.addAll(_nodeRows(child, 0));
+      }
+    }
+    return rows;
   }
 
   bool? _checkboxValue(Set<String> values) {
@@ -5217,6 +5916,43 @@ class _TreeMultiSelectFilterDialogState
         _selected.removeAll(values);
       }
     });
+  }
+}
+
+class _FilterInlineCheckbox extends StatelessWidget {
+  const _FilterInlineCheckbox({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String label;
+  final bool? value;
+  final ValueChanged<bool?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () => onChanged(value == true ? false : true),
+      child: Padding(
+        padding: const EdgeInsets.only(right: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Checkbox(
+              value: value,
+              tristate: true,
+              visualDensity: VisualDensity.compact,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              onChanged: onChanged,
+            ),
+            const SizedBox(width: 2),
+            Text(label),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -5262,24 +5998,40 @@ List<_FilterTreeNode> _categoryFilterTree(Map<String, Object?>? config) {
   if (categories is! List) {
     return const [];
   }
-  final nodes = <_FilterTreeNode>[];
+  final incomeNodes = <_FilterTreeNode>[];
+  final expenseNodes = <_FilterTreeNode>[];
   for (final group in categories) {
     if (group is! Map<String, Object?>) {
       continue;
     }
-    final direction = group['direction'] == 'income' ? '收入' : '支出';
+    final isIncome = group['direction'] == 'income';
+    final targetNodes = isIncome ? incomeNodes : expenseNodes;
+    final valuePrefix = isIncome ? 'income' : 'expense';
     for (final item in _mutableList(group['items'])) {
       if (item is Map<String, Object?>) {
-        nodes.add(_categoryFilterTreeNode(item, direction));
+        targetNodes.add(_categoryFilterTreeNode(item, valuePrefix));
       }
     }
   }
-  return nodes.where((node) => node.values.isNotEmpty).toList();
+  return [
+    if (incomeNodes.any((node) => node.values.isNotEmpty))
+      _FilterTreeNode(
+        label: '收入',
+        values: {for (final node in incomeNodes) ...node.values},
+        children: incomeNodes.where((node) => node.values.isNotEmpty).toList(),
+      ),
+    if (expenseNodes.any((node) => node.values.isNotEmpty))
+      _FilterTreeNode(
+        label: '支出',
+        values: {for (final node in expenseNodes) ...node.values},
+        children: expenseNodes.where((node) => node.values.isNotEmpty).toList(),
+      ),
+  ];
 }
 
 _FilterTreeNode _categoryFilterTreeNode(
   Map<String, Object?> node,
-  String direction,
+  String valuePrefix,
 ) {
   final name = _stringValue(node['name'], '未命名分类');
   final children = [
@@ -5287,15 +6039,18 @@ _FilterTreeNode _categoryFilterTreeNode(
       if (child is Map<String, Object?>) child,
   ];
   if (children.isEmpty) {
-    return _FilterTreeNode(label: '$direction · $name', values: {name});
+    return _FilterTreeNode(
+      label: name,
+      values: {_categoryFilterValue(valuePrefix, name)},
+    );
   }
 
   final childNodes = <_FilterTreeNode>[];
   for (final child in children) {
-    childNodes.addAll(_categoryLeafFilterNodes(child, name));
+    childNodes.addAll(_categoryLeafFilterNodes(child, valuePrefix, name));
   }
   return _FilterTreeNode(
-    label: '$direction · $name',
+    label: name,
     values: {for (final child in childNodes) ...child.values},
     children: childNodes,
   );
@@ -5303,6 +6058,7 @@ _FilterTreeNode _categoryFilterTreeNode(
 
 List<_FilterTreeNode> _categoryLeafFilterNodes(
   Map<String, Object?> node,
+  String valuePrefix,
   String parentName,
 ) {
   final name = _stringValue(node['name'], '未命名分类');
@@ -5313,11 +6069,15 @@ List<_FilterTreeNode> _categoryLeafFilterNodes(
   ];
   if (children.isEmpty) {
     return [
-      _FilterTreeNode(label: name, values: {path}),
+      _FilterTreeNode(
+        label: name,
+        values: {_categoryFilterValue(valuePrefix, path)},
+      ),
     ];
   }
   return [
-    for (final child in children) ..._categoryLeafFilterNodes(child, path),
+    for (final child in children)
+      ..._categoryLeafFilterNodes(child, valuePrefix, path),
   ];
 }
 
@@ -5331,10 +6091,12 @@ List<_FilterOption> _categoryFilterOptions(Map<String, Object?>? config) {
     if (group is! Map<String, Object?>) {
       continue;
     }
-    final direction = group['direction'] == 'income' ? '收入' : '支出';
+    final isIncome = group['direction'] == 'income';
+    final direction = isIncome ? '收入' : '支出';
+    final valuePrefix = isIncome ? 'income' : 'expense';
     for (final item in _mutableList(group['items'])) {
       if (item is Map<String, Object?>) {
-        _collectCategoryOptions(item, direction, options);
+        _collectCategoryOptions(item, direction, valuePrefix, options);
       }
     }
   }
@@ -5344,6 +6106,7 @@ List<_FilterOption> _categoryFilterOptions(Map<String, Object?>? config) {
 void _collectCategoryOptions(
   Map<String, Object?> node,
   String direction,
+  String valuePrefix,
   List<_FilterOption> options, [
   String? parentName,
 ]) {
@@ -5354,13 +6117,20 @@ void _collectCategoryOptions(
       if (child is Map<String, Object?>) child,
   ];
   if (children.isEmpty) {
-    options.add(_FilterOption(value: path, label: '$direction · $path'));
+    options.add(
+      _FilterOption(
+        value: _categoryFilterValue(valuePrefix, path),
+        label: '$direction · $path',
+      ),
+    );
   } else {
     for (final child in children) {
-      _collectCategoryOptions(child, direction, options, path);
+      _collectCategoryOptions(child, direction, valuePrefix, options, path);
     }
   }
 }
+
+String _categoryFilterValue(String type, String path) => '$type\u0000$path';
 
 List<_FilterOption> _accountFilterOptions(Map<String, Object?>? config) {
   final accounts = config?['accounts'];
@@ -5463,21 +6233,81 @@ List<_FilterOption> _currencyFilterOptions(Map<String, Object?>? config) {
   ];
 }
 
-double _sum(Iterable<TransactionRecord> records, TransactionKind kind) {
-  return records
-      .where((record) => record.kind == kind)
-      .fold<double>(0, (sum, record) => sum + double.parse(record.amount));
+double _summaryTotalCny(
+  TransactionSummary summary,
+  TransactionKind kind,
+  Map<String, Object?>? config,
+) {
+  return summary.rows
+      .where((row) => row.kind == kind)
+      .fold<double>(0, (sum, row) => sum + _summaryRowAmountCny(row, config));
 }
 
-Iterable<TransactionRecord> _recordsInRange(
-  Iterable<TransactionRecord> records,
-  DateTime start,
-  DateTime end,
+double _summaryRowAmountCny(
+  TransactionSummaryRow row,
+  Map<String, Object?>? config,
 ) {
-  return records.where((record) {
-    final tradeDate = record.tradeTime;
-    return !tradeDate.isBefore(start) && tradeDate.isBefore(end);
-  });
+  final rate = _exchangeRateFor(config, row.currencyCode);
+  return rate <= 0 ? row.amount : row.amount / rate;
+}
+
+double _amountCny(
+  double amount,
+  String currencyCode,
+  Map<String, Object?>? config,
+) {
+  final rate = _exchangeRateFor(config, currencyCode);
+  return rate <= 0 ? amount : amount / rate;
+}
+
+double _exchangeRateFor(Map<String, Object?>? config, String currencyCode) {
+  final code = currencyCode.toUpperCase();
+  if (code == 'CNY') {
+    return 1;
+  }
+  final exchangeRates = config?['exchangeRates'];
+  if (exchangeRates is Map) {
+    final rates = exchangeRates['rates'];
+    if (rates is Map) {
+      final rate = rates[code] ?? rates[currencyCode];
+      if (rate is num && rate > 0) {
+        return rate.toDouble();
+      }
+      final parsed = double.tryParse(rate?.toString() ?? '');
+      if (parsed != null && parsed > 0) {
+        return parsed;
+      }
+    }
+  }
+  return 1;
+}
+
+List<_CategorySummary> _summaryCategoryRows(
+  TransactionSummary summary,
+  Map<String, Object?>? config,
+) {
+  final totals = <String, double>{};
+  for (final row in summary.rows) {
+    final category = row.firstCategory;
+    if (category == null || category.isEmpty) {
+      continue;
+    }
+    final key = '${row.kind.name}\u0000$category';
+    totals[key] =
+        (totals[key] ?? 0) + _amountCny(row.amount, row.currencyCode, config);
+  }
+  final rows = [
+    for (final entry in totals.entries)
+      _CategorySummary(
+        kind: entry.key.startsWith('${TransactionKind.income.name}\u0000')
+            ? TransactionKind.income
+            : TransactionKind.expense,
+        category: entry.key.split('\u0000').last,
+        amount: entry.value,
+      ),
+  ];
+  rows.sort((a, b) => b.amount.compareTo(a.amount));
+  return rows;
 }
 
 String _formatAmount(double amount) => amount.toStringAsFixed(2);

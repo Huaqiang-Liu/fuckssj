@@ -5,7 +5,6 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqlite3/sqlite3.dart';
 
-import 'exchange_rate_store.dart';
 import 'ledger_configuration_store.dart';
 import '../importer/suishouji_backup_recovery.dart';
 
@@ -13,7 +12,6 @@ class LedgerRepository {
   static const int maxLedgerNameLength = 40;
   final LedgerConfigurationStore _configurationStore =
       LedgerConfigurationStore();
-  final ExchangeRateStore _exchangeRateStore = ExchangeRateStore();
 
   Future<LedgerStoreState> loadStoreState() async {
     final store = await _readStore();
@@ -209,7 +207,6 @@ class LedgerRepository {
   Future<File> _ensureLedgerConfigurationAndExchangeRates(
     LedgerInfo ledger,
   ) async {
-    await _exchangeRateStore.ensureCache();
     return _configurationStore.ensureConfiguration(
       ledgerId: ledger.id,
       databasePath: ledger.path,
@@ -321,7 +318,6 @@ class LedgerRepository {
       configurationPath: null,
       note: '',
     );
-    await _exchangeRateStore.ensureCache();
     final configurationFile = await _configurationStore.ensureConfiguration(
       ledgerId: ledger.id,
       databasePath: ledger.path,

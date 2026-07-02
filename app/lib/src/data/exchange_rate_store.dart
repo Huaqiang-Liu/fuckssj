@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 class ExchangeRateStore {
   static const int defaultRefreshAfterHours = 12;
   static const String defaultSource = 'frankfurter.app';
+  static Future<Map<String, Object?>>? _refreshInFlight;
 
   Future<File> ensureCache() async {
     final file = await cacheFile();
@@ -18,7 +19,32 @@ class ExchangeRateStore {
     return file;
   }
 
-  Future<Map<String, Object?>> loadOrRefresh() async {
+  Future<Map<String, Object?>> loadCached() async {
+    final file = await ensureCache();
+    return _readCache(file);
+  }
+
+  Future<Map<String, Object?>> loadOrRefresh() {
+    return refreshIfStale();
+  }
+
+  Future<Map<String, Object?>> refreshIfStale() {
+    final pending = _refreshInFlight;
+    if (pending != null) {
+      return pending;
+    }
+
+    late final Future<Map<String, Object?>> refresh;
+    refresh = _refreshIfStale().whenComplete(() {
+      if (identical(_refreshInFlight, refresh)) {
+        _refreshInFlight = null;
+      }
+    });
+    _refreshInFlight = refresh;
+    return refresh;
+  }
+
+  Future<Map<String, Object?>> _refreshIfStale() async {
     final file = await ensureCache();
     final cache = await _readCache(file);
     if (!_shouldRefresh(cache)) {
