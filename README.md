@@ -34,7 +34,19 @@ fuckssj 是一个本地优先的记账 App，用来继续使用已有的随手�
 
 ### iOS
 
-iOS 版本使用同一套账本数据规则和本地存储逻辑。正式安装方式以 GitHub Releases 或发布说明为准。
+iOS 版本使用同一套账本数据规则和本地存储逻辑，但本项目不发布官方签名的 iOS 安装包，也不通过 App Store 或 TestFlight 分发。
+
+这是 Apple 平台签名和侧载限制带来的现实成本：如果你想在 iPhone 或 iPad 上使用 iOS 版本，需要自己准备 macOS、Xcode、Flutter 和可用的 Apple ID/签名配置，然后从源码构建运行。例如：
+
+```sh
+cd app
+flutter pub get
+flutter run --release
+```
+
+如果 Xcode 要求选择 Team、修改 Bundle ID 或创建本机开发证书，请按 Xcode 的 Signing & Capabilities 提示处理。免费 Apple ID 通常只能用于个人设备开发调试，并会受到 Apple 账号、设备和证书有效期等限制。
+
+没有 Mac 或不愿处理 iOS 签名配置的用户，无法直接安装本项目的 iOS 版本。建议使用 Android APK 版本，或自行在具备 Apple 开发环境的机器上构建。
 
 iOS 对文件访问采用系统文件选择器和 App 沙盒机制：导入账本后，App 会把文件复制到自己的管理目录；导出账本时，需要选择系统允许写入的位置。
 
