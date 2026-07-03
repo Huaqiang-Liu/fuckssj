@@ -114,7 +114,8 @@ class LedgerRepository {
     final normalized = normalizeLedgerName(name);
     final duplicate = store.ledgers.any(
       (ledger) =>
-          ledger.id != ledgerId && normalizeLedgerName(ledger.name) == normalized,
+          ledger.id != ledgerId &&
+          normalizeLedgerName(ledger.name) == normalized,
     );
     if (duplicate) {
       throw ArgumentError('账本名称已存在');
@@ -184,7 +185,9 @@ class LedgerRepository {
     await _writeStore(
       _LedgerStore(
         ledgers: ledgers,
-        lastLedgerId: store.lastLedgerId == ledgerId ? null : store.lastLedgerId,
+        lastLedgerId: store.lastLedgerId == ledgerId
+            ? null
+            : store.lastLedgerId,
       ),
     );
   }
@@ -309,7 +312,7 @@ class LedgerRepository {
   }) async {
     final store = await _readStore();
     final now = DateTime.now().toUtc();
-  final ledger = LedgerInfo(
+    final ledger = LedgerInfo(
       id: 'ledger_${now.microsecondsSinceEpoch}',
       name: name.trim(),
       path: path,
@@ -347,17 +350,66 @@ class LedgerRepository {
         return const _LedgerStore(ledgers: [], lastLedgerId: null);
       }
       final ledgersJson = json['ledgers'];
-      return _LedgerStore(
-        ledgers: [
-          if (ledgersJson is List)
-            for (final item in ledgersJson)
-              if (item is Map<String, Object?>) LedgerInfo.fromJson(item),
-        ],
+      final ledgers = <LedgerInfo>[];
+      var relocated = false;
+      if (ledgersJson is List) {
+        for (final item in ledgersJson) {
+          if (item is Map<String, Object?>) {
+            final ledger = LedgerInfo.fromJson(item);
+            final relocatedLedger = await _relocateLedgerPaths(ledger);
+            relocated =
+                relocated ||
+                relocatedLedger.path != ledger.path ||
+                relocatedLedger.configurationPath != ledger.configurationPath;
+            ledgers.add(relocatedLedger);
+          }
+        }
+      }
+      final store = _LedgerStore(
+        ledgers: ledgers,
         lastLedgerId: json['lastLedgerId'] as String?,
+      );
+      if (relocated) {
+        await _writeStore(store);
+      }
+      return _LedgerStore(
+        ledgers: store.ledgers,
+        lastLedgerId: store.lastLedgerId,
       );
     } on FormatException {
       return const _LedgerStore(ledgers: [], lastLedgerId: null);
     }
+  }
+
+  Future<LedgerInfo> _relocateLedgerPaths(LedgerInfo ledger) async {
+    var path = ledger.path;
+    if (!File(path).existsSync()) {
+      final currentPath = await _ledgerFileInCurrentContainer(path);
+      if (currentPath != null) {
+        path = currentPath;
+      }
+    }
+
+    var configurationPath = ledger.configurationPath;
+    if (configurationPath != null && !File(configurationPath).existsSync()) {
+      final currentConfiguration = await _configurationStore.configurationFile(
+        ledger.id,
+      );
+      if (currentConfiguration.existsSync()) {
+        configurationPath = currentConfiguration.path;
+      }
+    }
+
+    if (path == ledger.path && configurationPath == ledger.configurationPath) {
+      return ledger;
+    }
+    return ledger.copyWith(path: path, configurationPath: configurationPath);
+  }
+
+  Future<String?> _ledgerFileInCurrentContainer(String previousPath) async {
+    final root = await getApplicationDocumentsDirectory();
+    final currentPath = p.join(root.path, 'ledgers', p.basename(previousPath));
+    return File(currentPath).existsSync() ? currentPath : null;
   }
 
   Future<void> _writeStore(_LedgerStore store) async {
@@ -409,13 +461,14 @@ class LedgerInfo {
 
   LedgerInfo copyWith({
     String? name,
+    String? path,
     String? configurationPath,
     String? note,
   }) {
     return LedgerInfo(
       id: id,
       name: name ?? this.name,
-      path: path,
+      path: path ?? this.path,
       sourceKind: sourceKind,
       createdAt: createdAt,
       configurationPath: configurationPath ?? this.configurationPath,
