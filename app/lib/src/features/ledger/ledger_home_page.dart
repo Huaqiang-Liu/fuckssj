@@ -80,13 +80,24 @@ class _LedgerHomePageState extends State<LedgerHomePage> {
       return;
     }
 
+    const allowedExtensions = ['sqlite', 'sqlite3', 'db', 'db3'];
     final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const ['sqlite', 'sqlite3', 'db', 'db3'],
+      type: Platform.isIOS ? FileType.any : FileType.custom,
+      allowedExtensions: Platform.isIOS ? null : allowedExtensions,
       withData: false,
     );
     final sourcePath = result?.files.single.path;
     if (sourcePath == null) {
+      return;
+    }
+    if (Platform.isIOS && !_hasFileExtension(sourcePath, allowedExtensions)) {
+      if (!mounted) {
+        return;
+      }
+      showAppSnackBar(
+        context,
+        '请选择 ${_formatFileExtensions(allowedExtensions)} 文件',
+      );
       return;
     }
 
@@ -105,13 +116,24 @@ class _LedgerHomePageState extends State<LedgerHomePage> {
       return;
     }
 
+    const allowedExtensions = ['kbf'];
     final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const ['kbf'],
+      type: Platform.isIOS ? FileType.any : FileType.custom,
+      allowedExtensions: Platform.isIOS ? null : allowedExtensions,
       withData: false,
     );
     final sourcePath = result?.files.single.path;
     if (sourcePath == null) {
+      return;
+    }
+    if (Platform.isIOS && !_hasFileExtension(sourcePath, allowedExtensions)) {
+      if (!mounted) {
+        return;
+      }
+      showAppSnackBar(
+        context,
+        '请选择 ${_formatFileExtensions(allowedExtensions)} 文件',
+      );
       return;
     }
 
@@ -163,6 +185,17 @@ class _LedgerHomePageState extends State<LedgerHomePage> {
       await WidgetsBinding.instance.endOfFrame;
     }
     return name;
+  }
+
+  bool _hasFileExtension(String filePath, List<String> extensions) {
+    final normalizedPath = filePath.toLowerCase();
+    return extensions.any(
+      (extension) => normalizedPath.endsWith('.${extension.toLowerCase()}'),
+    );
+  }
+
+  String _formatFileExtensions(List<String> extensions) {
+    return extensions.map((extension) => '.$extension').join('、');
   }
 
   Future<_LoadedLedgerState> _loadLastLedgerState() async {
