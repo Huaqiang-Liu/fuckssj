@@ -682,6 +682,15 @@ class _LedgerPageState extends State<LedgerPage> {
     }
   }
 
+  Future<void> _submitDashboardRangeQuery(_DashboardQuickRange range) async {
+    final dateRange = _dashboardDateRange(range);
+    setState(() {
+      _startDate = dateRange.start;
+      _endDate = dateRange.end;
+    });
+    await _submitQuery();
+  }
+
   Future<void> _openTransactionEditor({TransactionRecord? record}) async {
     _clearInputFocus();
     final config = _ledgerConfig ?? await _loadLedgerConfig(widget.ledger);
@@ -899,6 +908,7 @@ class _LedgerPageState extends State<LedgerPage> {
               loading: _dashboardLoading,
               errorMessage: _dashboardError,
               config: _ledgerConfig,
+              onRangeTap: _querying ? null : _submitDashboardRangeQuery,
             ),
             const SizedBox(height: 16),
             _QueryPanel(
@@ -4687,12 +4697,14 @@ class _DashboardCards extends StatelessWidget {
     required this.loading,
     required this.errorMessage,
     required this.config,
+    required this.onRangeTap,
   });
 
   final DashboardSummary? summary;
   final bool loading;
   final String? errorMessage;
   final Map<String, Object?>? config;
+  final ValueChanged<_DashboardQuickRange>? onRangeTap;
 
   @override
   Widget build(BuildContext context) {
@@ -4719,24 +4731,36 @@ class _DashboardCards extends StatelessWidget {
               summary: dashboard.today,
               loading: cardLoading,
               config: config,
+              onTap: cardLoading || onRangeTap == null
+                  ? null
+                  : () => onRangeTap!(_DashboardQuickRange.today),
             ),
             _DashboardCard(
               title: '本周',
               summary: dashboard.week,
               loading: cardLoading,
               config: config,
+              onTap: cardLoading || onRangeTap == null
+                  ? null
+                  : () => onRangeTap!(_DashboardQuickRange.week),
             ),
             _DashboardCard(
               title: '本月',
               summary: dashboard.month,
               loading: cardLoading,
               config: config,
+              onTap: cardLoading || onRangeTap == null
+                  ? null
+                  : () => onRangeTap!(_DashboardQuickRange.month),
             ),
             _DashboardCard(
               title: '本年',
               summary: dashboard.year,
               loading: cardLoading,
               config: config,
+              onTap: cardLoading || onRangeTap == null
+                  ? null
+                  : () => onRangeTap!(_DashboardQuickRange.year),
             ),
           ],
         ),
@@ -4751,6 +4775,7 @@ class _DashboardCard extends StatelessWidget {
     required this.summary,
     required this.loading,
     required Map<String, Object?>? config,
+    required this.onTap,
   }) : income = _summaryTotalCny(summary, TransactionKind.income, config),
        expense = _summaryTotalCny(summary, TransactionKind.expense, config);
 
@@ -4759,45 +4784,51 @@ class _DashboardCard extends StatelessWidget {
   final bool loading;
   final double income;
   final double expense;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              loading ? title : '$title · ${summary.count} 条',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: textTheme.titleSmall,
-            ),
-            if (loading) ...[
-              const SizedBox(height: 8),
-              const LinearProgressIndicator(minHeight: 2),
-            ] else ...[
-              const SizedBox(height: 2),
-              _AmountLine(
-                label: '收入',
-                amountText: '¥${_formatAmount(income)}',
-                color: Colors.red.shade700,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                loading ? title : '$title · ${summary.count} 条',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: textTheme.titleSmall,
               ),
-              _AmountLine(
-                label: '支出',
-                amountText: '-¥${_formatAmount(expense)}',
-                color: Colors.green.shade700,
-              ),
+              if (loading) ...[
+                const SizedBox(height: 8),
+                const LinearProgressIndicator(minHeight: 2),
+              ] else ...[
+                const SizedBox(height: 2),
+                _AmountLine(
+                  label: '收入',
+                  amountText: '¥${_formatAmount(income)}',
+                  color: Colors.red.shade700,
+                ),
+                _AmountLine(
+                  label: '支出',
+                  amountText: '-¥${_formatAmount(expense)}',
+                  color: Colors.green.shade700,
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -5626,6 +5657,27 @@ String _formatDateTime(DateTime dateTime) {
 
 String _formatDate(DateTime dateTime) {
   return DateFormat('yyyy-MM-dd').format(dateTime);
+}
+
+enum _DashboardQuickRange { today, week, month, year }
+
+({DateTime start, DateTime end}) _dashboardDateRange(
+  _DashboardQuickRange range,
+) {
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  return switch (range) {
+    _DashboardQuickRange.today => (start: today, end: today),
+    _DashboardQuickRange.week => (
+      start: today.subtract(Duration(days: today.weekday - 1)),
+      end: today,
+    ),
+    _DashboardQuickRange.month => (
+      start: DateTime(today.year, today.month),
+      end: today,
+    ),
+    _DashboardQuickRange.year => (start: DateTime(today.year), end: today),
+  };
 }
 
 String _exportLedgerFileName(LedgerInfo ledger) {
